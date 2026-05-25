@@ -1,0 +1,26 @@
+.app {
+  max-width: 600px;
+  margin: 80px auto;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+}
+
+h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.subtitle {
+  color: #666;
+  font-size: 1.1rem;
+  margin-bottom: 1.5rem;
+}
+
+.status {
+  display: inline-block;
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  background: #f0f0f0;
+  font-size: 0.9rem;
+  color: #444;
+}
