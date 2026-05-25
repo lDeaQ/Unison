@@ -190,7 +190,9 @@ watchtogether/
 - Не делать аутентификацию через OAuth и сложные системы — простой nickname + session token.
 
 ## Текущий этап
-Старт проекта. Структура папок ещё не создана. Первая задача — поднять минимальный скелет: пустой FastAPI с health-check и пустой Vite-проект с заглушкой RuTube-плеера.
+WebSocket-инфраструктура реализована: ConnectionManager, схемы сообщений, обработчик `/ws/{session_id}`.
+Фронт подключается, отображает список участников, поддерживает переподключение с exponential backoff.
+Следующий этап — NTP-синхронизация часов и команды Play/Pause/Seek.
 
 ## Полезные команды
 
@@ -200,7 +202,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000 --ws-ping-interval 20 --ws-ping-timeout 10
 ```
 
 ### Frontend

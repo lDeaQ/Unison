@@ -1,13 +1,19 @@
 .app {
-  max-width: 600px;
+  max-width: 520px;
   margin: 80px auto;
   text-align: center;
   font-family: system-ui, sans-serif;
+  padding: 0 1rem;
 }
 
 h1 {
   font-size: 2.5rem;
   margin-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 1.5rem 0 0.75rem;
 }
 
 .subtitle {
@@ -16,11 +22,108 @@ h1 {
   margin-bottom: 1.5rem;
 }
 
-.status {
+/* Статус-бейдж */
+.status-badge {
   display: inline-block;
-  padding: 0.4rem 1rem;
-  border-radius: 999px;
-  background: #f0f0f0;
+  font-size: 1rem;
+  font-weight: 500;
+  margin-bottom: 1.25rem;
+  transition: color 0.2s;
+}
+
+/* Форма входа */
+.join-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.input {
+  width: 100%;
+  max-width: 300px;
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  border: 1.5px solid #ccc;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: #3b82f6;
+}
+
+.error {
+  color: #ef4444;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* Кнопки */
+.btn {
+  padding: 0.6rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #3b82f6;
+  color: #fff;
+  transition: background 0.15s;
+}
+
+.btn:hover {
+  background: #2563eb;
+}
+
+.btn-secondary {
+  background: #e5e7eb;
+  color: #374151;
+  margin-top: 1.5rem;
+}
+
+.btn-secondary:hover {
+  background: #d1d5db;
+}
+
+/* Список участников */
+.participants {
+  margin-top: 0.5rem;
+}
+
+.participant-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  display: inline-block;
+  min-width: 260px;
+}
+
+.participant-item {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.25rem;
+  background: #f9fafb;
+  font-size: 0.95rem;
+}
+
+.participant-name {
+  font-weight: 500;
+}
+
+.you {
+  color: #3b82f6;
+  font-size: 0.85rem;
+}
+
+.role {
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+
+.empty {
+  color: #9ca3af;
   font-size: 0.9rem;
-  color: #444;
 }
