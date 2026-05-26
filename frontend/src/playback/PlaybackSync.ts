@@ -30,12 +30,19 @@ export class PlaybackSync {
   }
   private readonly pendingTimers: Map<CommandType, ReturnType<typeof setTimeout>> = new Map()
   private readonly listeners: Set<() => void> = new Set()
+  private readonly send: SendFn
+  private readonly getOffset: () => number
+  private readonly getOffsetReady: () => boolean
 
   constructor(
-    private readonly send: SendFn,
-    private readonly getOffset: () => number,
-    private readonly getOffsetReady: () => boolean,
-  ) {}
+    send: SendFn,
+    getOffset: () => number,
+    getOffsetReady: () => boolean,
+  ) {
+    this.send = send
+    this.getOffset = getOffset
+    this.getOffsetReady = getOffsetReady
+  }
 
   // --- Входящие бродкасты ---
 

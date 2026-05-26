@@ -11,13 +11,16 @@ import type {
   PauseBroadcastPayload,
   SeekBroadcastPayload,
   SetPlaybackRateBroadcastPayload,
+  VideoUrlChangedPayload,
 } from '../types/protocol'
 
 export interface UseWebSocketResult {
   status: ConnectionStatus
   participants: ParticipantInfo[]
   myUserId: string | null
+  videoUrl: string
   reconnect: () => void
+  sendSetVideoUrl: (url: string) => void
   clockSync: ClockSync | null
   playbackSync: PlaybackSync | null
 }
@@ -26,6 +29,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
   const [participants, setParticipants] = useState<ParticipantInfo[]>([])
   const [myUserId, setMyUserId] = useState<string | null>(null)
+  const [videoUrl, setVideoUrl] = useState<string>('')
   const [clockSync, setClockSync] = useState<ClockSync | null>(null)
   const [playbackSync, setPlaybackSync] = useState<PlaybackSync | null>(null)
   const clientRef = useRef<WSClient | null>(null)
@@ -67,7 +71,13 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       const p = payload as WelcomePayload
       setMyUserId(p.your_user_id)
       setParticipants(p.participants)
+      setVideoUrl(p.video_url)
       playback.onWelcome(p)
+    })
+
+    client.on('message:VideoUrlChanged', (payload) => {
+      const p = payload as VideoUrlChangedPayload
+      setVideoUrl(p.video_url)
     })
 
     client.on('message:ParticipantJoined', (payload) => {
@@ -123,5 +133,9 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     clientRef.current?.connect(sessionId, nickname)
   }, [sessionId, nickname])
 
-  return { status, participants, myUserId, reconnect, clockSync, playbackSync }
+  const sendSetVideoUrl = useCallback((url: string) => {
+    clientRef.current?.send({ type: 'SetVideoUrl', payload: { video_url: url } })
+  }, [])
+
+  return { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync }
 }

@@ -132,6 +132,20 @@ export interface SetPlaybackRateBroadcastMessage {
   payload: SetPlaybackRateBroadcastPayload
 }
 
+export interface SetVideoUrlMessage {
+  type: 'SetVideoUrl'
+  payload: { video_url: string }
+}
+
+export interface VideoUrlChangedPayload {
+  video_url: string
+}
+
+export interface VideoUrlChangedMessage {
+  type: 'VideoUrlChanged'
+  payload: VideoUrlChangedPayload
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | ParticipantJoinedMessage
@@ -142,6 +156,7 @@ export type ServerMessage =
   | PauseBroadcastMessage
   | SeekBroadcastMessage
   | SetPlaybackRateBroadcastMessage
+  | VideoUrlChangedMessage
 
 export type ClientMessage =
   | HelloMessage
@@ -150,3 +165,4 @@ export type ClientMessage =
   | PauseRequestMessage
   | SeekRequestMessage
   | SetPlaybackRateRequestMessage
+  | SetVideoUrlMessage
