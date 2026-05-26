@@ -109,15 +109,58 @@
 
 ---
 
-## Следующая сессия — команды Play/Pause/Seek с execute_at
+## Сессия 4 — команды Play/Pause/Seek/SetPlaybackRate (завершена) — 27.05.2026
 
-Теперь, когда есть точные часы, можно реализовать главное:
+### Что сделано
 
-- Схемы `Play`/`Pause`/`Seek`/`SetPlaybackRate` (клиент → сервер: payload с позицией/скоростью; сервер → клиент: + `server_timestamp` + `execute_at`).
-- Серверная логика: при получении команды формирует широковещание с `execute_at = server_now_ms() + 200`, рассылает всем включая инициатора.
-- Клиентская: пересчёт `execute_at` в локальное время через `ClockSync.getOffset()`, `setTimeout` на применение, обработка опоздавших команд (если `delay_ms < -50` — применять немедленно).
-- Стейт сессии на бэке: текущие is_playing/position_ms/playback_rate, обновляются по командам, отдаются в Welcome.
-- На фронте — пока без реального плеера (адаптеры — следующая итерация). Просто визуализировать состояние: «idle / playing с позиции X мс / на паузе на X мс / playback rate X».
-- Юнит-тесты на расчёт `local_execute_at` и поздних команд.
+#### Бэкенд
 
-После этого этапа можно приступать к адаптерам плееров (RuTube + VK Video в приоритете).
+- **`app/services/session_state.py`** — `SessionState` (dataclass) + чистые функции `apply_play / apply_pause / apply_seek / apply_set_rate` + `compute_current_position_ms`. Якорная формула: `position = position_ms + floor((now - anchor_server_ms) * playback_rate)`. `SessionStateStore` — in-process словарь, thread-safe в рамках single-threaded uvicorn event loop.
+- **`EXECUTE_AT_DELAY_MS = 200.0`** в `app/sync/clock.py` — бюджет задержки под RTT + jitter + обработку. Обоснование значения — `docs/plan_commands.md §5.1`.
+- **Схемы** (`app/schemas/messages.py`) — Play/Pause/Seek/SetPlaybackRate Request (client→server) + Broadcast (server→client) с полями `server_timestamp_ms`, `execute_at_ms`. `SetPlaybackRate` broadcast дополнительно несёт `position_ms` (авторитетное значение сервера, обеспечивает непрерывность позиции при смене скорости — §5.6). `WelcomePayload` расширен полем `server_time_ms`.
+- **`app/ws/handler.py`** — четыре ветки команд с идемпотентностью (Play/Pause — no-op при совпадении состояния; Seek/SetPlaybackRate — always-broadcast). Welcome отдаёт актуальную позицию через `compute_current_position_ms`. При пустой сессии — `state_store.drop(session_id)`.
+- **15 pytest** в `backend/tests/test_session_state.py` — все зелёные. Покрытие: статика/динамика с разными rate, идемпотентность, фиксация позиции на Pause, непрерывность SetRate, сохранение is_playing в Seek, композиция Play→SetRate→Pause→Seek.
+
+#### Фронтенд
+
+- **`frontend/src/types/protocol.ts`** — расширен: 4 клиентских типа-запроса, 4 серверных broadcast-типа, `server_time_ms` в `WelcomePayload`. Union-типы `ClientMessage` / `ServerMessage` обновлены.
+- **`frontend/src/playback/playbackMath.ts`** — зеркало серверной модели в шкале `performance.now()`: `PlaybackState`, `computeCurrentPositionMs` (с `Math.floor` — §5.7), `applyPlay/Pause/Seek/SetRate`, `serverMsToLocalPerfNow`.
+- **`frontend/src/playback/PlaybackSync.ts`** — оркестратор: принимает бродкасты, планирует применение через `scheduleApply` (три ветки: future → `setTimeout`; late ≤50мс → apply сразу; late >50мс → apply + `console.warn`). `applyFn` всегда получает `localExecAtPerfNow` — корректность late-команд обеспечивается автоматически через anchor-формулу без явной логики «adjust position». `onWelcome` сначала очищает `pendingTimers`, затем выставляет anchor через `server_time_ms` если `clockSync.isReady()`.
+- **`frontend/src/playback/usePlayback.ts`** — React-хук: `onChange` + `setInterval(100мс)` при `isPlaying` для live-обновления позиции.
+- **`frontend/src/ws/useWebSocket.ts`** — `PlaybackSync` создаётся рядом с `ClockSync`; подписки на `message:Play/Pause/Seek/SetPlaybackRate`; `playback.onWelcome` в обработчике Welcome; `playback.destroy()` в cleanup. `playbackSync` возвращается из хука.
+- **`frontend/src/App.tsx`** — компонент `PlaybackControls`: Play/Pause toggle, позиция `HH:MM:SS.mmm`, Seek input + кнопка «Перейти», селект скорости (8 значений, текущее подсвечено), отображение video_url. Контролы `disabled` при `status !== 'connected'`.
+- **27 vitest** в `playbackMath.test.ts` — все зелёные (итого 41 с clockMath). Покрытие: все ветки `computeCurrentPositionMs`, `applyPlay/Pause/Seek/SetRate`, `serverMsToLocalPerfNow`, композиция, late-command -300мс.
+
+### Архитектурное ядро (для главы 2)
+
+| Решение | Значение |
+|---|---|
+| Серверно-авторитетная модель | Сервер — единственный источник истины; локальный state меняется только после бродкаста |
+| `EXECUTE_AT_DELAY_MS = 200` | Бюджет: RTT медиана ~50 мс + jitter ~50 мс + обработка ~20 мс + резерв ~80 мс |
+| Anchor хранится в шкале времени | Late-команды (delay < 0) корректируются автоматически: `compute(state, now)` сразу выдаёт правильную позицию — без явного «adjust position» |
+| `position_ms` в SetPlaybackRate broadcast | Сервер посылает авторитетную позицию на момент `execute_at`, клиент не пересчитывает по старому rate (§5.6) |
+| Идемпотентность Play/Pause | No-op при совпадении состояния → не дёргает плееры зря (RuTube перезапускает сэмплирование на дублирующий `play()`) |
+
+### Ручная проверка (5 сценариев из §4.3)
+
+| Сценарий | Статус |
+|---|---|
+| 1. Базовая синхронизация Play | ✅ Позиция стартует через ~164мс (ожидаемо ≈200мс) |
+| 2. Seek | ✅ `120000 мс → 00:02:00.000` ровно |
+| 3. SetPlaybackRate во время паузы | ✅ Кнопка 1.5x подсвечивается, состояние обновляется |
+| 4. Late-команда (Slow 3G) | ⏭ Пропущено в браузере — корректность доказана юнит-тестом `late-command -300мс` в `playbackMath.test.ts` |
+| 5. Mid-session join | ⏭ Отложено — требует двух вкладок; Welcome с `server_time_ms` готов со стороны бэка |
+
+### TODO (отложено)
+
+- **Коррекция Welcome через ClockSync** после первого TimeSync (§9.1 `plan_commands.md`): при `is_playing=true` в Welcome и `clockSync.isReady()=false` (первое подключение) anchor выставляется в `performance.now()` с погрешностью ≈RTT/2. После первого успешного TimeSync можно пересчитать позицию. Отложено — погрешность ≤50мс приемлема.
+- **Mid-session join**: визуальная проверка сценария 5 (две вкладки).
+- **UX при NICKNAME_TAKEN** (наследие сессии 2).
+
+### Что дальше
+
+**Адаптеры плееров** — следующая большая задача. Приоритет: RuTube + VK Video (отечественные хостинги).
+
+`PlaybackSync` уже готов принять любой адаптер: вместо обновления локального виртуального состояния `applyFn` будет вызывать `adapter.play() / .pause() / .seek(ms)`. Интерфейс `IPlayerAdapter` определён в `frontend/src/players/IPlayerAdapter.ts`.
+
+`PlayerFactory.create(url)` уже парсит URL и определяет платформу — нужно только дописать конкретные классы под каждый хостинг.
