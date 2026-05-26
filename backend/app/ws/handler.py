@@ -16,9 +16,13 @@ from app.schemas.messages import (
     ParticipantJoinedPayload,
     ParticipantLeftMessage,
     ParticipantLeftPayload,
+    TimeSyncRequestMessage,
+    TimeSyncResponseMessage,
+    TimeSyncResponsePayload,
     WelcomeMessage,
     WelcomePayload,
 )
+from app.sync.clock import server_now_ms
 from app.ws.manager import NicknameTakenError, manager
 
 logger = logging.getLogger(__name__)
@@ -116,14 +120,48 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
             extra=log_extra,
         )
 
-        # 6. Основной цикл — получаем и логируем входящие сообщения
+        # 6. Основной цикл — получаем и обрабатываем входящие сообщения
         while True:
             raw = await websocket.receive_text()
+            # t1_candidate фиксируется как можно раньше — до JSON-разбора и валидации
+            # Pydantic. Используется только если сообщение окажется TimeSyncRequest;
+            # на остальных типах значение просто отбрасывается. Делаем так, чтобы
+            # не включать в t1 время на сериализацию/валидацию (десятки–сотни мкс).
+            t1_candidate = server_now_ms()
             try:
                 parsed = json.loads(raw)
                 msg_type = parsed.get("type", "<unknown>")
             except json.JSONDecodeError:
-                msg_type = "<invalid json>"
+                logger.warning("Невалидный JSON во входящем сообщении", extra=log_extra)
+                continue
+
+            if msg_type == "TimeSyncRequest":
+                try:
+                    req = TimeSyncRequestMessage.model_validate(parsed)
+                except ValidationError:
+                    # Не закрываем соединение из-за одной кривой метки —
+                    # шлём Error и продолжаем работать.
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "TimeSyncRequest: ожидается payload.client_send_ms (float)",
+                        )
+                    )
+                    continue
+
+                # t2 фиксируется в самый последний момент — прямо перед send_text,
+                # чтобы в server_send_ms попала минимально возможная задержка.
+                response = TimeSyncResponseMessage(
+                    payload=TimeSyncResponsePayload(
+                        client_send_ms=req.payload.client_send_ms,
+                        server_receive_ms=t1_candidate,
+                        server_send_ms=server_now_ms(),
+                    )
+                )
+                await websocket.send_text(response.model_dump_json())
+                logger.debug("TimeSync обработан", extra=log_extra)
+                continue
+
             logger.warning(
                 "Неизвестный тип сообщения: %s", msg_type, extra=log_extra
             )
