@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from fastapi import WebSocket
 
 from app.schemas.messages import ParticipantInfo
+from app.services.session_state import state_store
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class ConnectionManager:
         participant = session.pop(user_id, None)
         if not session:
             del self._sessions[session_id]
+            state_store.drop(session_id)
             logger.info(
                 "Сессия закрыта (все участники ушли)",
                 extra={"session_id": session_id, "user_id": user_id},

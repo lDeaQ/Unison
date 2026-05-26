@@ -16,13 +16,33 @@ from app.schemas.messages import (
     ParticipantJoinedPayload,
     ParticipantLeftMessage,
     ParticipantLeftPayload,
+    PauseBroadcastMessage,
+    PauseBroadcastPayload,
+    PauseRequestMessage,
+    PlayBroadcastMessage,
+    PlayBroadcastPayload,
+    PlayRequestMessage,
+    SeekBroadcastMessage,
+    SeekBroadcastPayload,
+    SeekRequestMessage,
+    SetPlaybackRateBroadcastMessage,
+    SetPlaybackRateBroadcastPayload,
+    SetPlaybackRateRequestMessage,
     TimeSyncRequestMessage,
     TimeSyncResponseMessage,
     TimeSyncResponsePayload,
     WelcomeMessage,
     WelcomePayload,
 )
-from app.sync.clock import server_now_ms
+from app.services.session_state import (
+    apply_pause,
+    apply_play,
+    apply_seek,
+    apply_set_rate,
+    compute_current_position_ms,
+    state_store,
+)
+from app.sync.clock import EXECUTE_AT_DELAY_MS, server_now_ms
 from app.ws.manager import NicknameTakenError, manager
 
 logger = logging.getLogger(__name__)
@@ -91,16 +111,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     logger.info("Hello от '%s'", nickname, extra=log_extra)
 
     try:
-        # 4. Welcome только этому клиенту
+        # 4. Welcome только этому клиенту — с актуальным состоянием сессии
+        session_state = state_store.get_or_create(session_id)
+        now = server_now_ms()
         welcome = WelcomeMessage(
             payload=WelcomePayload(
                 session_id=session_id,
                 your_user_id=user_id,
-                video_url="",
-                is_playing=False,
-                position_ms=0,
-                playback_rate=1.0,
+                video_url=session_state.video_url,
+                is_playing=session_state.is_playing,
+                position_ms=compute_current_position_ms(session_state, now),
+                playback_rate=session_state.playback_rate,
                 participants=manager.get_participants(session_id),
+                server_time_ms=now,
             )
         )
         await websocket.send_text(welcome.model_dump_json())
@@ -160,6 +183,158 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                 )
                 await websocket.send_text(response.model_dump_json())
                 logger.debug("TimeSync обработан", extra=log_extra)
+                continue
+
+            if msg_type == "Play":
+                try:
+                    req = PlayRequestMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "Play: ожидается payload.position_ms (int, ≥0)",
+                        )
+                    )
+                    continue
+
+                server_now = server_now_ms()
+                execute_at = server_now + EXECUTE_AT_DELAY_MS
+                old_state = state_store.get_or_create(session_id)
+                new_state = apply_play(old_state, execute_at)
+
+                if new_state is old_state:
+                    logger.info("Play (no-op, уже воспроизводится)", extra=log_extra)
+                    continue
+
+                state_store.set(session_id, new_state)
+                broadcast_msg = PlayBroadcastMessage(
+                    payload=PlayBroadcastPayload(
+                        position_ms=new_state.position_ms,
+                        server_timestamp_ms=server_now,
+                        execute_at_ms=execute_at,
+                    )
+                )
+                await manager.broadcast(session_id, broadcast_msg.model_dump_json())
+                client_pos = req.payload.position_ms
+                server_pos = new_state.position_ms
+                if abs(client_pos - server_pos) > 500:
+                    logger.warning(
+                        "Play: расхождение позиций client_pos=%d server_pos=%d (>500 мс)",
+                        client_pos, server_pos, extra=log_extra,
+                    )
+                else:
+                    logger.info(
+                        "Play: client_pos=%d server_pos=%d execute_at=%.1f",
+                        client_pos, server_pos, execute_at, extra=log_extra,
+                    )
+                continue
+
+            if msg_type == "Pause":
+                try:
+                    req = PauseRequestMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "Pause: ожидается payload.position_ms (int, ≥0)",
+                        )
+                    )
+                    continue
+
+                server_now = server_now_ms()
+                execute_at = server_now + EXECUTE_AT_DELAY_MS
+                old_state = state_store.get_or_create(session_id)
+                new_state = apply_pause(old_state, execute_at)
+
+                if new_state is old_state:
+                    logger.info("Pause (no-op, уже на паузе)", extra=log_extra)
+                    continue
+
+                state_store.set(session_id, new_state)
+                broadcast_msg = PauseBroadcastMessage(
+                    payload=PauseBroadcastPayload(
+                        position_ms=new_state.position_ms,
+                        server_timestamp_ms=server_now,
+                        execute_at_ms=execute_at,
+                    )
+                )
+                await manager.broadcast(session_id, broadcast_msg.model_dump_json())
+                client_pos = req.payload.position_ms
+                server_pos = new_state.position_ms
+                if abs(client_pos - server_pos) > 500:
+                    logger.warning(
+                        "Pause: расхождение позиций client_pos=%d server_pos=%d (>500 мс)",
+                        client_pos, server_pos, extra=log_extra,
+                    )
+                else:
+                    logger.info(
+                        "Pause: client_pos=%d server_pos=%d execute_at=%.1f",
+                        client_pos, server_pos, execute_at, extra=log_extra,
+                    )
+                continue
+
+            if msg_type == "Seek":
+                try:
+                    req = SeekRequestMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "Seek: ожидается payload.position_ms (int, ≥0)",
+                        )
+                    )
+                    continue
+
+                server_now = server_now_ms()
+                execute_at = server_now + EXECUTE_AT_DELAY_MS
+                old_state = state_store.get_or_create(session_id)
+                new_state = apply_seek(old_state, execute_at, req.payload.position_ms)
+                state_store.set(session_id, new_state)
+                broadcast_msg = SeekBroadcastMessage(
+                    payload=SeekBroadcastPayload(
+                        position_ms=new_state.position_ms,
+                        server_timestamp_ms=server_now,
+                        execute_at_ms=execute_at,
+                    )
+                )
+                await manager.broadcast(session_id, broadcast_msg.model_dump_json())
+                logger.info(
+                    "Seek: position_ms=%d execute_at=%.1f",
+                    new_state.position_ms, execute_at, extra=log_extra,
+                )
+                continue
+
+            if msg_type == "SetPlaybackRate":
+                try:
+                    req = SetPlaybackRateRequestMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            f"SetPlaybackRate: rate должен быть одним из {sorted({0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0})}",
+                        )
+                    )
+                    continue
+
+                server_now = server_now_ms()
+                execute_at = server_now + EXECUTE_AT_DELAY_MS
+                old_state = state_store.get_or_create(session_id)
+                new_state = apply_set_rate(old_state, execute_at, req.payload.rate)
+                state_store.set(session_id, new_state)
+                broadcast_msg = SetPlaybackRateBroadcastMessage(
+                    payload=SetPlaybackRateBroadcastPayload(
+                        rate=new_state.playback_rate,
+                        position_ms=new_state.position_ms,
+                        server_timestamp_ms=server_now,
+                        execute_at_ms=execute_at,
+                    )
+                )
+                await manager.broadcast(session_id, broadcast_msg.model_dump_json())
+                logger.info(
+                    "SetPlaybackRate: rate=%.2f position_ms=%d execute_at=%.1f",
+                    new_state.playback_rate, new_state.position_ms, execute_at,
+                    extra=log_extra,
+                )
                 continue
 
             logger.warning(
