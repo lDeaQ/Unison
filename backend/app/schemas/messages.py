@@ -23,6 +23,17 @@ class HelloMessage(BaseModel):
     payload: HelloPayload
 
 
+class TimeSyncRequestPayload(BaseModel):
+    # Клиентское время t0 в момент отправки. Float, миллисекунды с дробной частью —
+    # int отбрасывал бы субмиллисекундную точность, которую performance.now() даёт.
+    client_send_ms: float
+
+
+class TimeSyncRequestMessage(BaseModel):
+    type: Literal["TimeSyncRequest"]
+    payload: TimeSyncRequestPayload
+
+
 # --- Исходящие: сервер → клиент ---
 
 class WelcomePayload(BaseModel):
@@ -69,3 +80,18 @@ class ErrorPayload(BaseModel):
 class ErrorMessage(BaseModel):
     type: Literal["Error"] = "Error"
     payload: ErrorPayload
+
+
+class TimeSyncResponsePayload(BaseModel):
+    # Эхо t0 от клиента — клиент по нему сопоставляет запрос с ответом
+    # без необходимости вести очередь pending-запросов.
+    client_send_ms: float
+    # t1 — серверное время в момент приёма запроса (фиксируется как можно раньше).
+    server_receive_ms: float
+    # t2 — серверное время прямо перед отправкой ответа.
+    server_send_ms: float
+
+
+class TimeSyncResponseMessage(BaseModel):
+    type: Literal["TimeSyncResponse"] = "TimeSyncResponse"
+    payload: TimeSyncResponsePayload
