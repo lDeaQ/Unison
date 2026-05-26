@@ -14,6 +14,15 @@ export interface HelloMessage {
   }
 }
 
+export interface TimeSyncRequestPayload {
+  client_send_ms: number  // t0 — performance.now() в момент отправки
+}
+
+export interface TimeSyncRequestMessage {
+  type: 'TimeSyncRequest'
+  payload: TimeSyncRequestPayload
+}
+
 // --- Сервер → клиент ---
 
 export interface WelcomePayload {
@@ -46,10 +55,22 @@ export interface ErrorMessage {
   payload: { code: string; message: string }
 }
 
+export interface TimeSyncResponsePayload {
+  client_send_ms: number    // эхо t0 — для сопоставления запроса с ответом
+  server_receive_ms: number // t1
+  server_send_ms: number    // t2
+}
+
+export interface TimeSyncResponseMessage {
+  type: 'TimeSyncResponse'
+  payload: TimeSyncResponsePayload
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | ParticipantJoinedMessage
   | ParticipantLeftMessage
   | ErrorMessage
+  | TimeSyncResponseMessage
 
-export type ClientMessage = HelloMessage
+export type ClientMessage = HelloMessage | TimeSyncRequestMessage
