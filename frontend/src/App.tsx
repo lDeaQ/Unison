@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useWebSocket } from './ws/useWebSocket'
 import type { ConnectionStatus } from './ws/WSClient'
+import { useClockSync, type ClockSyncState } from './sync/useClockSync'
 import './App.css'
 
 const SESSION_ID = 'demo'
@@ -21,6 +22,36 @@ const STATUS_COLOR: Record<ConnectionStatus, string> = {
   failed: '#ef4444',
 }
 
+// --- Sync-индикатор ---
+
+function rttColor(rtt: number): string {
+  if (rtt < 50) return '#22c55e'
+  if (rtt < 150) return '#f0a500'
+  return '#ef4444'
+}
+
+function formatSigned(n: number, digits: number): string {
+  // После округления используем нормализованное значение, чтобы корректно
+  // обработать случаи -0 и значения, округляющиеся в ноль.
+  const rounded = Number(n.toFixed(digits))
+  if (rounded === 0) return (0).toFixed(digits)  // "0.0" без знака
+  const s = rounded.toFixed(digits)
+  return rounded > 0 ? `+${s}` : s  // отрицательное уже содержит "-"
+}
+
+function SyncIndicator({ sync }: { sync: ClockSyncState }) {
+  if (!sync.isReady) {
+    return <div className="sync-indicator placeholder">Синхронизация…</div>
+  }
+  return (
+    <div className="sync-indicator">
+      Sync: drift {formatSigned(sync.drift, 1)} мс ±{sync.uncertainty.toFixed(1)} мс |{' '}
+      <span style={{ color: rttColor(sync.lastRtt) }}>RTT {sync.lastRtt.toFixed(1)} мс</span>
+      {' | '}n={sync.measurementCount}
+    </div>
+  )
+}
+
 // --- Экран комнаты ---
 
 interface RoomScreenProps {
@@ -29,7 +60,8 @@ interface RoomScreenProps {
 }
 
 function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
-  const { status, participants, myUserId, reconnect } = useWebSocket(SESSION_ID, nickname)
+  const { status, participants, myUserId, reconnect, clockSync } = useWebSocket(SESSION_ID, nickname)
+  const sync = useClockSync(clockSync)
 
   return (
     <div className="app">
@@ -40,6 +72,10 @@ function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
 
       <div className="status-badge" style={{ color: STATUS_COLOR[status] }}>
         ● {STATUS_LABEL[status]}
+      </div>
+
+      <div>
+        <SyncIndicator sync={sync} />
       </div>
 
       {status === 'failed' && (
