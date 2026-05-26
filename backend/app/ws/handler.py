@@ -28,9 +28,12 @@ from app.schemas.messages import (
     SetPlaybackRateBroadcastMessage,
     SetPlaybackRateBroadcastPayload,
     SetPlaybackRateRequestMessage,
+    SetVideoUrlMessage,
     TimeSyncRequestMessage,
     TimeSyncResponseMessage,
     TimeSyncResponsePayload,
+    VideoUrlChangedMessage,
+    VideoUrlChangedPayload,
     WelcomeMessage,
     WelcomePayload,
 )
@@ -39,6 +42,7 @@ from app.services.session_state import (
     apply_play,
     apply_seek,
     apply_set_rate,
+    apply_set_video_url,
     compute_current_position_ms,
     state_store,
 )
@@ -133,6 +137,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         joined_msg = ParticipantJoinedMessage(
             payload=ParticipantJoinedPayload(id=user_id, nickname=nickname, role=role)
         )
+        import asyncio
+        await asyncio.sleep(0.5)
         await manager.broadcast(
             session_id, joined_msg.model_dump_json(), exclude_user_id=user_id
         )
@@ -335,6 +341,34 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     new_state.playback_rate, new_state.position_ms, execute_at,
                     extra=log_extra,
                 )
+                continue
+
+            if msg_type == "SetVideoUrl":
+                try:
+                    req = SetVideoUrlMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "SetVideoUrl: ожидается payload.video_url (string, max 2048 символов)",
+                        )
+                    )
+                    continue
+
+                old_state = state_store.get_or_create(session_id)
+                new_url = req.payload.video_url
+                if new_url == old_state.video_url:
+                    logger.info("SetVideoUrl (no-op, URL не изменился)", extra=log_extra)
+                    continue
+
+                now = server_now_ms()
+                new_state = apply_set_video_url(old_state, new_url, now)
+                state_store.set(session_id, new_state)
+                broadcast_msg = VideoUrlChangedMessage(
+                    payload=VideoUrlChangedPayload(video_url=new_url)
+                )
+                await manager.broadcast(session_id, broadcast_msg.model_dump_json())
+                logger.info("SetVideoUrl: url='%s'", new_url, extra=log_extra)
                 continue
 
             logger.warning(

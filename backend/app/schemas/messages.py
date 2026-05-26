@@ -206,3 +206,25 @@ class SetPlaybackRateBroadcastPayload(BaseModel):
 class SetPlaybackRateBroadcastMessage(BaseModel):
     type: Literal["SetPlaybackRate"] = "SetPlaybackRate"
     payload: SetPlaybackRateBroadcastPayload
+
+
+# ---------------------------------------------------------------------------
+# Смена видео
+# ---------------------------------------------------------------------------
+
+class SetVideoUrlPayload(BaseModel):
+    video_url: str = Field(max_length=2048)
+
+
+class SetVideoUrlMessage(BaseModel):
+    type: Literal["SetVideoUrl"]
+    payload: SetVideoUrlPayload
+
+
+class VideoUrlChangedPayload(BaseModel):
+    video_url: str
+
+
+class VideoUrlChangedMessage(BaseModel):
+    type: Literal["VideoUrlChanged"] = "VideoUrlChanged"
+    payload: VideoUrlChangedPayload
