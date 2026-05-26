@@ -2,10 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { WSClient } from './WSClient'
 import type { ConnectionStatus } from './WSClient'
 import { ClockSync } from '../sync/ClockSync'
+import { PlaybackSync } from '../playback/PlaybackSync'
 import type {
   ParticipantInfo,
   TimeSyncResponsePayload,
   WelcomePayload,
+  PlayBroadcastPayload,
+  PauseBroadcastPayload,
+  SeekBroadcastPayload,
+  SetPlaybackRateBroadcastPayload,
 } from '../types/protocol'
 
 export interface UseWebSocketResult {
@@ -14,6 +19,7 @@ export interface UseWebSocketResult {
   myUserId: string | null
   reconnect: () => void
   clockSync: ClockSync | null
+  playbackSync: PlaybackSync | null
 }
 
 export function useWebSocket(sessionId: string, nickname: string): UseWebSocketResult {
@@ -21,17 +27,24 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
   const [participants, setParticipants] = useState<ParticipantInfo[]>([])
   const [myUserId, setMyUserId] = useState<string | null>(null)
   const [clockSync, setClockSync] = useState<ClockSync | null>(null)
+  const [playbackSync, setPlaybackSync] = useState<PlaybackSync | null>(null)
   const clientRef = useRef<WSClient | null>(null)
 
   useEffect(() => {
     const client = new WSClient()
     clientRef.current = client
 
-    // ClockSync создаётся ровно один раз на жизнь эффекта (= одно подключение
-    // в смысле «одна пара sessionId/nickname»). Переподключения через тот же
-    // клиент не пересоздают ClockSync, только reset/start.
+    // ClockSync и PlaybackSync создаются ровно один раз на жизнь эффекта
+    // (= одна пара sessionId/nickname). Реконнекты не пересоздают их.
     const clock = new ClockSync((msg) => client.send(msg))
     setClockSync(clock)
+
+    const playback = new PlaybackSync(
+      (msg) => client.send(msg),
+      () => clock.getOffset(),
+      () => clock.isReady(),
+    )
+    setPlaybackSync(playback)
 
     client.on('status_change', (s) => {
       const newStatus = s as ConnectionStatus
@@ -54,6 +67,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       const p = payload as WelcomePayload
       setMyUserId(p.your_user_id)
       setParticipants(p.participants)
+      playback.onWelcome(p)
     })
 
     client.on('message:ParticipantJoined', (payload) => {
@@ -67,6 +81,22 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
 
     client.on('message:TimeSyncResponse', (payload) => {
       clock.handleResponse(payload as TimeSyncResponsePayload)
+    })
+
+    client.on('message:Play', (payload) => {
+      playback.onPlayBroadcast(payload as PlayBroadcastPayload)
+    })
+
+    client.on('message:Pause', (payload) => {
+      playback.onPauseBroadcast(payload as PauseBroadcastPayload)
+    })
+
+    client.on('message:Seek', (payload) => {
+      playback.onSeekBroadcast(payload as SeekBroadcastPayload)
+    })
+
+    client.on('message:SetPlaybackRate', (payload) => {
+      playback.onSetPlaybackRateBroadcast(payload as SetPlaybackRateBroadcastPayload)
     })
 
     client.on('message:Error', (payload) => {
@@ -84,6 +114,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
 
     return () => {
       clock.stop()
+      playback.destroy()
       client.disconnect()
     }
   }, [sessionId, nickname])
@@ -92,5 +123,5 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     clientRef.current?.connect(sessionId, nickname)
   }, [sessionId, nickname])
 
-  return { status, participants, myUserId, reconnect, clockSync }
+  return { status, participants, myUserId, reconnect, clockSync, playbackSync }
 }
