@@ -23,6 +23,26 @@ export interface TimeSyncRequestMessage {
   payload: TimeSyncRequestPayload
 }
 
+export interface PlayRequestMessage {
+  type: 'Play'
+  payload: { position_ms: number }
+}
+
+export interface PauseRequestMessage {
+  type: 'Pause'
+  payload: { position_ms: number }
+}
+
+export interface SeekRequestMessage {
+  type: 'Seek'
+  payload: { position_ms: number }
+}
+
+export interface SetPlaybackRateRequestMessage {
+  type: 'SetPlaybackRate'
+  payload: { rate: number }
+}
+
 // --- Сервер → клиент ---
 
 export interface WelcomePayload {
@@ -33,6 +53,7 @@ export interface WelcomePayload {
   position_ms: number
   playback_rate: number
   participants: ParticipantInfo[]
+  server_time_ms: number
 }
 
 export interface WelcomeMessage {
@@ -66,11 +87,66 @@ export interface TimeSyncResponseMessage {
   payload: TimeSyncResponsePayload
 }
 
+export interface PlayBroadcastPayload {
+  position_ms: number
+  server_timestamp_ms: number
+  execute_at_ms: number
+}
+
+export interface PlayBroadcastMessage {
+  type: 'Play'
+  payload: PlayBroadcastPayload
+}
+
+export interface PauseBroadcastPayload {
+  position_ms: number
+  server_timestamp_ms: number
+  execute_at_ms: number
+}
+
+export interface PauseBroadcastMessage {
+  type: 'Pause'
+  payload: PauseBroadcastPayload
+}
+
+export interface SeekBroadcastPayload {
+  position_ms: number
+  server_timestamp_ms: number
+  execute_at_ms: number
+}
+
+export interface SeekBroadcastMessage {
+  type: 'Seek'
+  payload: SeekBroadcastPayload
+}
+
+export interface SetPlaybackRateBroadcastPayload {
+  rate: number
+  position_ms: number
+  server_timestamp_ms: number
+  execute_at_ms: number
+}
+
+export interface SetPlaybackRateBroadcastMessage {
+  type: 'SetPlaybackRate'
+  payload: SetPlaybackRateBroadcastPayload
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | ParticipantJoinedMessage
   | ParticipantLeftMessage
   | ErrorMessage
   | TimeSyncResponseMessage
+  | PlayBroadcastMessage
+  | PauseBroadcastMessage
+  | SeekBroadcastMessage
+  | SetPlaybackRateBroadcastMessage
 
-export type ClientMessage = HelloMessage | TimeSyncRequestMessage
+export type ClientMessage =
+  | HelloMessage
+  | TimeSyncRequestMessage
+  | PlayRequestMessage
+  | PauseRequestMessage
+  | SeekRequestMessage
+  | SetPlaybackRateRequestMessage
