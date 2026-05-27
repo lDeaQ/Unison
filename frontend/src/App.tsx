@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useWebSocket } from './ws/useWebSocket'
 import type { ConnectionStatus } from './ws/WSClient'
 import { useClockSync, type ClockSyncState } from './sync/useClockSync'
@@ -6,6 +6,7 @@ import { usePlayback } from './playback/usePlayback'
 import type { PlaybackSync } from './playback/PlaybackSync'
 import { PlayerFactory } from './players/PlayerFactory'
 import type { IPlayerAdapter } from './players/IPlayerAdapter'
+import type { ChatMessageBroadcastPayload } from './types/protocol'
 import './App.css'
 
 const SESSION_ID = 'demo'
@@ -234,6 +235,88 @@ function PlaybackControls({ sync, disabled, videoUrl }: PlaybackControlsProps) {
   )
 }
 
+// --- Чат ---
+
+interface ChatPanelProps {
+  messages: ChatMessageBroadcastPayload[]
+  sendChat: (text: string) => void
+  myUserId: string | null
+  disabled: boolean
+}
+
+function ChatPanel({ messages, sendChat, myUserId, disabled }: ChatPanelProps) {
+  const [input, setInput] = useState('')
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const handleSend = useCallback(() => {
+    const trimmed = input.trim()
+    if (!trimmed) return
+    sendChat(trimmed)
+    setInput('')
+  }, [input, sendChat])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const formatTime = (ms: number) => {
+    const d = new Date(ms)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+
+  return (
+    <div className="chat-panel">
+      <h2>Чат</h2>
+      <div className="chat-messages">
+        {messages.length === 0 ? (
+          <p className="chat-empty">Нет сообщений</p>
+        ) : (
+          messages.map((msg) => {
+            const isOwn = msg.user_id === myUserId
+            return (
+              <div
+                key={`${msg.user_id}-${msg.timestamp_ms}`}
+                className={`chat-msg ${isOwn ? 'chat-msg-own' : 'chat-msg-other'}`}
+              >
+                {!isOwn && <span className="chat-nickname">{msg.nickname}</span>}
+                <span className="chat-text">{msg.text}</span>
+                <span className="chat-time">{formatTime(msg.timestamp_ms)}</span>
+              </div>
+            )
+          })
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div className="chat-input-row">
+        <input
+          className="input chat-input"
+          type="text"
+          placeholder="Написать сообщение…"
+          value={input}
+          maxLength={500}
+          disabled={disabled}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <button
+          className="btn btn-sm"
+          onClick={handleSend}
+          disabled={disabled || !input.trim()}
+        >
+          Отправить
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // --- Экран комнаты ---
 
 interface RoomScreenProps {
@@ -242,7 +325,7 @@ interface RoomScreenProps {
 }
 
 function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
-  const { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync } =
+  const { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat } =
     useWebSocket(SESSION_ID, nickname)
   const sync = useClockSync(clockSync)
   const isConnected = status === 'connected'
@@ -279,6 +362,13 @@ function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
           Подключиться заново
         </button>
       )}
+
+      <ChatPanel
+        messages={messages}
+        sendChat={sendChat}
+        myUserId={myUserId}
+        disabled={!isConnected}
+      />
 
       <div className="participants">
         <h2>Участники ({participants.length})</h2>
