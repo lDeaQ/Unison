@@ -187,15 +187,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
 
                 # t2 фиксируется в самый последний момент — прямо перед send_text,
                 # чтобы в server_send_ms попала минимально возможная задержка.
+                t2 = server_now_ms()
                 response = TimeSyncResponseMessage(
                     payload=TimeSyncResponsePayload(
                         client_send_ms=req.payload.client_send_ms,
                         server_receive_ms=t1_candidate,
-                        server_send_ms=server_now_ms(),
+                        server_send_ms=t2,
                     )
                 )
                 await websocket.send_text(response.model_dump_json())
                 logger.debug("TimeSync обработан", extra=log_extra)
+                await log_time_sync(session_id, user_id, t1_candidate, t2)
                 continue
 
             if msg_type == "Play":
