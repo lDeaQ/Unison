@@ -4,6 +4,7 @@ import type { ConnectionStatus } from './WSClient'
 import { ClockSync } from '../sync/ClockSync'
 import { PlaybackSync } from '../playback/PlaybackSync'
 import type {
+  ChatMessageBroadcastPayload,
   ParticipantInfo,
   TimeSyncResponsePayload,
   WelcomePayload,
@@ -23,6 +24,8 @@ export interface UseWebSocketResult {
   sendSetVideoUrl: (url: string) => void
   clockSync: ClockSync | null
   playbackSync: PlaybackSync | null
+  messages: ChatMessageBroadcastPayload[]
+  sendChat: (text: string) => void
 }
 
 export function useWebSocket(sessionId: string, nickname: string): UseWebSocketResult {
@@ -32,6 +35,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
   const [videoUrl, setVideoUrl] = useState<string>('')
   const [clockSync, setClockSync] = useState<ClockSync | null>(null)
   const [playbackSync, setPlaybackSync] = useState<PlaybackSync | null>(null)
+  const [messages, setMessages] = useState<ChatMessageBroadcastPayload[]>([])
   const clientRef = useRef<WSClient | null>(null)
 
   useEffect(() => {
@@ -109,6 +113,14 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       playback.onSetPlaybackRateBroadcast(payload as SetPlaybackRateBroadcastPayload)
     })
 
+    client.on('message:ChatMessage', (payload) => {
+      const msg = payload as ChatMessageBroadcastPayload
+      setMessages((prev) => {
+        const next = [...prev, msg]
+        return next.length > 100 ? next.slice(next.length - 100) : next
+      })
+    })
+
     client.on('message:Error', (payload) => {
       const err = payload as { code: string; message: string }
       // Согласовано: на Error в ответ на TimeSyncRequest — warn и продолжаем.
@@ -137,5 +149,12 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     clientRef.current?.send({ type: 'SetVideoUrl', payload: { video_url: url } })
   }, [])
 
-  return { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync }
+  const sendChat = useCallback((text: string) => {
+    const trimmed = text.trim()
+    if (trimmed) {
+      clientRef.current?.send({ type: 'ChatMessage', payload: { text: trimmed } })
+    }
+  }, [])
+
+  return { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat }
 }

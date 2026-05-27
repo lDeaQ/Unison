@@ -137,6 +137,24 @@ export interface SetVideoUrlMessage {
   payload: { video_url: string }
 }
 
+export interface ChatMessageRequestMessage {
+  type: 'ChatMessage'
+  payload: { text: string }
+}
+
+export interface ChatMessageBroadcastPayload {
+  message_id: number
+  user_id: string
+  nickname: string
+  text: string
+  timestamp_ms: number
+}
+
+export interface ChatMessageBroadcastMessage {
+  type: 'ChatMessage'
+  payload: ChatMessageBroadcastPayload
+}
+
 export interface VideoUrlChangedPayload {
   video_url: string
 }
@@ -157,6 +175,7 @@ export type ServerMessage =
   | SeekBroadcastMessage
   | SetPlaybackRateBroadcastMessage
   | VideoUrlChangedMessage
+  | ChatMessageBroadcastMessage
 
 export type ClientMessage =
   | HelloMessage
@@ -166,3 +185,4 @@ export type ClientMessage =
   | SeekRequestMessage
   | SetPlaybackRateRequestMessage
   | SetVideoUrlMessage
+  | ChatMessageRequestMessage
