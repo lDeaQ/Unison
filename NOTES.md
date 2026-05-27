@@ -274,3 +274,25 @@
 - **Чат** (WS-канал `ChatMessage` / `ChatModeration`, хранение в `chat_messages`), или
 - **Нагрузочный тест** — эмуляция 30 клиентов, измерение реального рассинхрона (целевой ≤ 400 мс из ТЗ), или
 - **VK Video адаптер** (`VKVideoAdapter.ts`).
+
+---
+
+## Сессия 7 — Чат (завершена) — 27.05.2026
+
+### Что сделано
+
+- **Протокол ChatMessage:** `ChatMessageRequestMessage` (клиент→сервер, `payload.text` 1–500 символов), `ChatMessageBroadcastMessage` (сервер→все, `payload`: `message_id`, `user_id`, `nickname`, `text`, `timestamp_ms`). Схемы в `backend/app/schemas/messages.py`, TS-типы в `frontend/src/types/protocol.ts`.
+- **Обработчик handler.py:** ветка `ChatMessage` — валидация Pydantic, сохранение в `chat_messages` через `save_chat_message()`, логирование в `events_log` (`event_type='Chat'`, preview текста до 50 символов), broadcast всем участникам комнаты включая отправителя.
+- **`save_chat_message()` в `event_logger.py`:** пишет в `chat_messages`, возвращает `message_id` (или -1 при ошибке БД — ошибка не роняет WS-соединение).
+- **REST `GET /api/sessions/{id}/chat?limit=50`** в `analytics.py`: LEFT JOIN `chat_messages` + `users` для никнеймов, возвращает до 200 не удалённых сообщений в хронологическом порядке.
+- **`useWebSocket`:** `messages: ChatMessageBroadcastPayload[]` (кольцо 100 штук), функция `sendChat(text)`, обработчик `message:ChatMessage`.
+- **`ChatPanel` UI:** автоскролл при новом сообщении, своё сообщение — справа (голубой фон `#dbeafe`), чужое — слева (серый `#e5e7eb`), никнейм + время HH:MM, отправка по Enter или кнопке «Отправить». Вставлен в `RoomScreen` между PlaybackControls и списком участников.
+
+### Проверено
+
+Два клиента обмениваются сообщениями в реальном времени: сообщение появляется у обоих мгновенно, своё выровнено вправо, чужое — влево с никнеймом.
+
+### Что дальше
+
+- **Нагрузочный тест** — эмуляция 30 клиентов, измерение реального рассинхрона (целевой ≤ 400 мс, целевой ≤ 150 мс из ТЗ). Критично для главы 4 диплома.
+- **VK Video адаптер** (`VKVideoAdapter.ts`).
