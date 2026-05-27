@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import AsyncSessionLocal
+from app.models.chat import ChatMessage as ChatMessageModel
 from app.models.events import EventLog
 from app.models.session import Session, User
 
@@ -47,6 +48,16 @@ class SessionStats(BaseModel):
     event_counts: dict[str, int]
     time_sync_latency_ms: Optional[dict]  # avg / min / max для TimeSyncResponse
     play_timestamps_ms: Optional[dict]    # min / max / median для Play-событий
+
+
+class ChatMessageRecord(BaseModel):
+    id: int
+    session_id: str
+    user_id: str
+    nickname: str
+    text: str
+    timestamp_ms: float
+    deleted: bool
 
 
 # ---------- Эндпоинты ----------
@@ -162,3 +173,39 @@ async def get_stats(
         time_sync_latency_ms=time_sync_latency_ms,
         play_timestamps_ms=play_timestamps_ms,
     )
+
+
+@router.get("/sessions/{session_id}/chat", response_model=list[ChatMessageRecord])
+async def get_chat(
+    session_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> list[ChatMessageRecord]:
+    """Последние N сообщений чата сессии (не удалённых)."""
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Сессия '{session_id}' не найдена")
+
+    stmt = (
+        select(ChatMessageModel, User)
+        .join(User, ChatMessageModel.user_id == User.id, isouter=True)
+        .where(ChatMessageModel.session_id == session_id)
+        .where(ChatMessageModel.deleted == False)  # noqa: E712
+        .order_by(ChatMessageModel.id.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    rows = list(reversed(result.all()))
+
+    return [
+        ChatMessageRecord(
+            id=msg.id,
+            session_id=msg.session_id,
+            user_id=msg.user_id,
+            nickname=user.nickname if user else msg.user_id,
+            text=msg.text,
+            timestamp_ms=msg.timestamp.timestamp() * 1000,
+            deleted=msg.deleted,
+        )
+        for msg, user in rows
+    ]

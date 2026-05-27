@@ -9,6 +9,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.schemas.messages import (
+    ChatMessageBroadcastMessage,
+    ChatMessageBroadcastPayload,
+    ChatMessageRequestMessage,
     ErrorMessage,
     ErrorPayload,
     HelloMessage,
@@ -42,6 +45,7 @@ from app.services.event_logger import (
     log_join,
     log_leave,
     log_time_sync,
+    save_chat_message,
 )
 from app.services.session_state import (
     apply_pause,
@@ -398,6 +402,43 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                 )
                 await manager.broadcast(session_id, broadcast_msg.model_dump_json())
                 logger.info("SetVideoUrl: url='%s'", new_url, extra=log_extra)
+                continue
+
+            if msg_type == "ChatMessage":
+                try:
+                    req = ChatMessageRequestMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "ChatMessage: ожидается payload.text (строка 1–500 символов)",
+                        )
+                    )
+                    continue
+
+                server_now = server_now_ms()
+                message_id = await save_chat_message(
+                    session_id, user_id, req.payload.text, server_now
+                )
+                await log_command(
+                    session_id, user_id, "Chat", server_now,
+                    payload={"text": req.payload.text[:50]},
+                )
+                broadcast_msg = ChatMessageBroadcastMessage(
+                    payload=ChatMessageBroadcastPayload(
+                        message_id=message_id,
+                        user_id=user_id,
+                        nickname=nickname,
+                        text=req.payload.text,
+                        timestamp_ms=server_now,
+                    )
+                )
+                await manager.broadcast(session_id, broadcast_msg.model_dump_json())
+                logger.info(
+                    "ChatMessage: user='%s' message_id=%d len=%d",
+                    nickname, message_id, len(req.payload.text),
+                    extra=log_extra,
+                )
                 continue
 
             logger.warning(

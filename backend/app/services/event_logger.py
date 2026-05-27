@@ -11,6 +11,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from app.db import AsyncSessionLocal
+from app.models.chat import ChatMessage as ChatMessageModel
 from app.models.events import EventLog
 from app.models.session import Session, User
 from app.services.session_state import SessionState
@@ -135,6 +136,34 @@ async def log_command(
             "Ошибка логирования %s session=%s user=%s",
             event_type, session_id, user_id,
         )
+
+
+async def save_chat_message(
+    session_id: str,
+    user_id: str,
+    text: str,
+    timestamp_ms: float,
+) -> int:
+    """Сохраняет сообщение в chat_messages, возвращает message_id (или -1 при ошибке)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            from datetime import timezone
+            ts = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+            msg = ChatMessageModel(
+                session_id=session_id,
+                user_id=user_id,
+                text=text,
+                timestamp=ts,
+            )
+            db.add(msg)
+            await db.commit()
+            await db.refresh(msg)
+            return msg.id
+    except Exception:
+        logger.exception(
+            "Ошибка сохранения ChatMessage session=%s user=%s", session_id, user_id
+        )
+        return -1
 
 
 async def log_time_sync(

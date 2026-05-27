@@ -228,3 +228,29 @@ class VideoUrlChangedPayload(BaseModel):
 class VideoUrlChangedMessage(BaseModel):
     type: Literal["VideoUrlChanged"] = "VideoUrlChanged"
     payload: VideoUrlChangedPayload
+
+
+# ---------------------------------------------------------------------------
+# Чат
+# ---------------------------------------------------------------------------
+
+class ChatMessageRequestPayload(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class ChatMessageRequestMessage(BaseModel):
+    type: Literal["ChatMessage"]
+    payload: ChatMessageRequestPayload
+
+
+class ChatMessageBroadcastPayload(BaseModel):
+    message_id: int
+    user_id: str
+    nickname: str
+    text: str
+    timestamp_ms: float
+
+
+class ChatMessageBroadcastMessage(BaseModel):
+    type: Literal["ChatMessage"] = "ChatMessage"
+    payload: ChatMessageBroadcastPayload
