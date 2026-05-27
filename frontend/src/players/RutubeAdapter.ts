@@ -36,8 +36,9 @@ export class RutubeAdapter extends BasePlayerAdapter {
   private currentTimeSec = 0
   private durationSec = 0
 
-  // Логируем первое player:currentTime для определения единицы времени
-  private firstCurrentTimeReceived = false
+  // Логируем первые несколько ненулевых player:currentTime для определения единицы
+  private loggedCurrentTimeCount = 0
+  private readonly LOG_CURRENT_TIME_LIMIT = 5
 
   // Буфер команд до события player:ready
   private pendingPlay = false
@@ -153,12 +154,15 @@ export class RutubeAdapter extends BasePlayerAdapter {
       case 'player:currentTime': {
         const d = parsed.data as { time?: number } | undefined
         if (typeof d?.time === 'number') {
-          if (!this.firstCurrentTimeReceived) {
-            this.firstCurrentTimeReceived = true
+          // Логируем первые N ненулевых значений — для определения единицы времени.
+          // Если raw ~ секунды (1, 2, 3...) → TIME_UNIT_MS=false верно.
+          // Если raw ~ тысячи (1000, 2000...) → нужно TIME_UNIT_MS=true.
+          if (this.loggedCurrentTimeCount < this.LOG_CURRENT_TIME_LIMIT && d.time > 0) {
+            this.loggedCurrentTimeCount++
             const interpretedSec = TIME_UNIT_MS ? d.time / 1000 : d.time
             console.log(
-              `[RutubeAdapter] первое player:currentTime: raw=${d.time} ` +
-                `TIME_UNIT_MS=${TIME_UNIT_MS} → ${interpretedSec.toFixed(3)} сек`,
+              `[RutubeAdapter] player:currentTime #${this.loggedCurrentTimeCount}: ` +
+                `raw=${d.time} → ${interpretedSec.toFixed(3)} сек (TIME_UNIT_MS=${TIME_UNIT_MS})`,
             )
           }
           this.currentTimeSec = TIME_UNIT_MS ? d.time / 1000 : d.time
