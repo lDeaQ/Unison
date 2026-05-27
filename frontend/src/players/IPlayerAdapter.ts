@@ -1,4 +1,4 @@
-export type PlayerEvent = 'play' | 'pause' | 'seek' | 'timeupdate' | 'ready'
+export type PlayerEvent = 'play' | 'pause' | 'seek' | 'timeupdate' | 'ready' | 'error'
 
 export interface IPlayerAdapter {
   // Управление воспроизведением

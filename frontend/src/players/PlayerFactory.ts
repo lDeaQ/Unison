@@ -1,4 +1,5 @@
 import type { IPlayerAdapter } from './IPlayerAdapter'
+import { RutubeAdapter } from './RutubeAdapter'
 
 export type Platform = 'rutube' | 'vkvideo' | 'youtube' | 'vimeo'
 
@@ -11,12 +12,19 @@ function detectPlatform(url: string): Platform | null {
 }
 
 export class PlayerFactory {
-  static create(_url: string, _container: HTMLElement): IPlayerAdapter {
-    const platform = detectPlatform(_url)
-    if (!platform) {
-      throw new Error(`Неизвестная платформа: ${_url}`)
+  static create(url: string, container: HTMLElement): IPlayerAdapter {
+    const platform = detectPlatform(url)
+    switch (platform) {
+      case 'rutube':
+        return new RutubeAdapter(url, container)
+      case null:
+        throw new Error(`Неизвестная платформа: ${url}`)
+      default:
+        throw new Error(`Адаптер для "${platform}" ещё не реализован`)
     }
-    // Адаптеры будут подключены по мере реализации
-    throw new Error(`Адаптер для "${platform}" ещё не реализован`)
+  }
+
+  static detect(url: string): Platform | null {
+    return detectPlatform(url)
   }
 }

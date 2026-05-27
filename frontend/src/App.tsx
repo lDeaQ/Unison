@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useWebSocket } from './ws/useWebSocket'
 import type { ConnectionStatus } from './ws/WSClient'
 import { useClockSync, type ClockSyncState } from './sync/useClockSync'
 import { usePlayback } from './playback/usePlayback'
 import type { PlaybackSync } from './playback/PlaybackSync'
+import { PlayerFactory } from './players/PlayerFactory'
+import type { IPlayerAdapter } from './players/IPlayerAdapter'
 import './App.css'
 
 const SESSION_ID = 'demo'
@@ -70,16 +72,90 @@ function SyncIndicator({ sync }: { sync: ClockSyncState }) {
   )
 }
 
+// --- Видеопанель: URL-инпут + iframe ---
+
+interface VideoPanelProps {
+  videoUrl: string
+  sendSetVideoUrl: (url: string) => void
+  onAdapterChange?: (adapter: IPlayerAdapter | null) => void
+}
+
+function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange }: VideoPanelProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const adapterRef = useRef<IPlayerAdapter | null>(null)
+  const [urlInput, setUrlInput] = useState('')
+
+  useEffect(() => {
+    // React запускает cleanup предыдущего эффекта ДО нового — старый адаптер
+    // уже уничтожен к этому моменту, создаём новый
+    if (!videoUrl || !containerRef.current) return
+
+    let adapter: IPlayerAdapter | null = null
+    try {
+      adapter = PlayerFactory.create(videoUrl, containerRef.current)
+      adapterRef.current = adapter
+      onAdapterChange?.(adapter)
+    } catch (e) {
+      console.error('[VideoPanel] Ошибка создания адаптера:', e)
+    }
+
+    return () => {
+      adapter?.destroy()
+      adapterRef.current = null
+      onAdapterChange?.(null)
+    }
+  }, [videoUrl, onAdapterChange])
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = urlInput.trim()
+    if (trimmed) {
+      sendSetVideoUrl(trimmed)
+      setUrlInput('')
+    }
+  }
+
+  return (
+    <div className="video-panel">
+      <form className="url-form" onSubmit={handleSubmit}>
+        <input
+          type="text"
+          className="input"
+          placeholder="https://rutube.ru/video/..."
+          value={urlInput}
+          onChange={(e) => setUrlInput(e.target.value)}
+        />
+        <button type="submit" className="btn">
+          Загрузить
+        </button>
+      </form>
+      {videoUrl ? (
+        <div
+          ref={containerRef}
+          className="player-container"
+          style={{ width: '100%', aspectRatio: '16/9', background: '#000', marginTop: 8 }}
+        />
+      ) : (
+        <div className="player-placeholder">
+          Введите ссылку на видео выше
+        </div>
+      )}
+    </div>
+  )
+}
+
 // --- Контролы воспроизведения ---
 
 interface PlaybackControlsProps {
   sync: PlaybackSync | null
   disabled: boolean
+  videoUrl: string
 }
 
-function PlaybackControls({ sync, disabled }: PlaybackControlsProps) {
+function PlaybackControls({ sync, disabled, videoUrl }: PlaybackControlsProps) {
   const { state, play, pause, seek, setRate } = usePlayback(sync)
   const [seekInput, setSeekInput] = useState('')
+  const platform = videoUrl ? PlayerFactory.detect(videoUrl) : null
 
   const seekMs = parseInt(seekInput, 10)
   const seekValid = seekInput !== '' && !isNaN(seekMs) && seekMs >= 0
@@ -142,10 +218,13 @@ function PlaybackControls({ sync, disabled }: PlaybackControlsProps) {
         </div>
       </div>
 
-      <div className="playback-row">
-        <span className="playback-label">Видео:</span>
-        <span className="video-url">{state.videoUrl || 'не задано'}</span>
-      </div>
+      {platform === 'rutube' && (
+        <div className="playback-row">
+          <span className="rate-warning">
+            ⚠ RuTube: изменение скорости не поддерживается embed API
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -158,7 +237,7 @@ interface RoomScreenProps {
 }
 
 function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
-  const { status, participants, myUserId, reconnect, clockSync, playbackSync } =
+  const { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync } =
     useWebSocket(SESSION_ID, nickname)
   const sync = useClockSync(clockSync)
   const isConnected = status === 'connected'
@@ -174,11 +253,20 @@ function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
         ● {STATUS_LABEL[status]}
       </div>
 
+      <VideoPanel
+        videoUrl={videoUrl}
+        sendSetVideoUrl={sendSetVideoUrl}
+      />
+
       <div>
         <SyncIndicator sync={sync} />
       </div>
 
-      <PlaybackControls sync={playbackSync} disabled={!isConnected || playbackSync === null} />
+      <PlaybackControls
+        sync={playbackSync}
+        disabled={!isConnected || playbackSync === null}
+        videoUrl={videoUrl}
+      />
 
       {status === 'failed' && (
         <button className="btn" onClick={reconnect}>
