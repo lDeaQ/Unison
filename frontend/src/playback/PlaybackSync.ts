@@ -52,22 +52,34 @@ export class PlaybackSync {
     this.adapter = adapter
     if (!adapter) return
 
-    const onReady = () => {
-      adapter.off('ready', onReady)
+    const applyState = () => {
       const s = this.state
-      // Seek до ненулевой позиции — до play, иначе видео начнёт с начала и перепрыгнет
-      if (s.positionMs > 0) {
-        adapter.seek(s.positionMs / 1000)
-      }
-      if (s.isPlaying) {
-        adapter.play()
-      }
+      const seekSec = s.positionMs / 1000
+      // Даём RuTube 1500 мс на внутреннюю инициализацию после ready,
+      // только потом применяем seek/play — иначе плеер сбрасывает позицию в 0.
+      setTimeout(() => {
+        if (this.adapter !== adapter) return  // адаптер уже заменён
+        if (Number.isFinite(seekSec) && seekSec > 0.5) {
+          adapter.seek(seekSec)
+        }
+        if (s.isPlaying) {
+          // Ещё 500 мс после seek для буферизации в новой позиции
+          setTimeout(() => {
+            if (this.adapter !== adapter) return
+            adapter.play()
+          }, 500)
+        }
+      }, 1500)
     }
 
-    // Сначала подписываемся, потом проверяем isReady — исключает гонку
-    adapter.on('ready', onReady)
     if (adapter.isReady()) {
-      onReady()
+      applyState()
+    } else {
+      const onReady = () => {
+        adapter.off('ready', onReady)
+        applyState()
+      }
+      adapter.on('ready', onReady)
     }
   }
 
@@ -131,13 +143,27 @@ export class PlaybackSync {
       }
     }
 
-    this.state = {
+    const welcomeState: PlaybackState = {
       isPlaying: w.is_playing,
       positionMs: w.position_ms,
       anchorPerfNowMs,
       playbackRate: w.playback_rate,
       videoUrl: w.video_url,
     }
+
+    // Уточняем позицию с поправкой на время в пути (RTT/2), если offset уже готов.
+    // Если вычисление даёт нефинитное число (offset=NaN из-за гонки в ClockSync) —
+    // откатываемся на серверное position_ms без поправки.
+    const computedPos = this.getOffsetReady()
+      ? computeCurrentPositionMs(welcomeState, performance.now())
+      : w.position_ms
+    if (!Number.isFinite(computedPos)) {
+      this.state = { ...welcomeState, positionMs: w.position_ms }
+      console.info('[PlaybackSync] onWelcome: computedPos нефинитен — используем position_ms без коррекции')
+    } else {
+      this.state = { ...welcomeState, positionMs: computedPos }
+    }
+
     this.emitChange()
   }
 
