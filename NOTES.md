@@ -242,3 +242,35 @@
 
 - VK Video адаптер (`VKVideoAdapter.ts`): отличие — загрузка внешнего JS-скрипта `VK.VideoPlayer`, более сложная инициализация.
 - Проверить `player:currentTime` единицу времени на реальном воспроизведении.
+
+---
+
+## Сессия 6 — БД и логирование (завершена) — 27.05.2026
+
+### Что сделано
+
+- **SQLite + SQLAlchemy 2.x + aiosqlite** — полноценный асинхронный слой хранилища. Таблицы: `sessions`, `users`, `events_log`, `chat_messages`. Инициализация через `init_db()` в lifespan FastAPI.
+- **Логирование событий в `events_log`:** Join, Leave, Play, Pause, Seek, SetPlaybackRate, TimeSyncResponse. Сервис `app/services/event_logger.py` — функции `log_join`, `log_leave`, `log_command`, `log_time_sync`.
+- **REST API (`backend/app/api/analytics.py`):**
+  - `GET /api/sessions` — список сессий с количеством участников.
+  - `GET /api/sessions/{id}/events` — все события сессии, фильтр по `event_type`.
+  - `GET /api/sessions/{id}/stats` — агрегаты: `event_counts` по типу, `time_sync_latency_ms` (avg/min/max для TimeSyncResponse), `play_timestamps_ms` (min/max/median для Play).
+
+### Проверено
+
+Полная цепочка через Python WS-скрипт: `Hello → Welcome → Play → sleep(1s) → Pause → disconnect`. В `/events` — ровно 4 записи в правильном порядке (Join, Play, Pause, Leave). `/stats` отдаёт корректные агрегаты.
+
+### Метрика
+
+`position_ms` в Pause-событии: 1004 мс при ожидаемом 1000 мс — погрешность ~4 мс от серверного таймера в `apply_pause`. В пределах нормы.
+
+### TODO
+
+- Передавать `client_timestamp_ms` в командах Play/Pause/Seek (сейчас `null`) — для расчёта реального RTT команды и точного измерения рассинхрона.
+- Чат: таблица `chat_messages` готова, WS-канал не реализован.
+
+### Что дальше
+
+- **Чат** (WS-канал `ChatMessage` / `ChatModeration`, хранение в `chat_messages`), или
+- **Нагрузочный тест** — эмуляция 30 клиентов, измерение реального рассинхрона (целевой ≤ 400 мс из ТЗ), или
+- **VK Video адаптер** (`VKVideoAdapter.ts`).
