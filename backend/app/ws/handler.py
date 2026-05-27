@@ -37,6 +37,12 @@ from app.schemas.messages import (
     WelcomeMessage,
     WelcomePayload,
 )
+from app.services.event_logger import (
+    log_command,
+    log_join,
+    log_leave,
+    log_time_sync,
+)
 from app.services.session_state import (
     apply_pause,
     apply_play,
@@ -133,12 +139,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         await websocket.send_text(welcome.model_dump_json())
         logger.info("Welcome отправлен", extra=log_extra)
 
+        # Логируем Join в БД (после отправки Welcome — не блокируем handshake)
+        await log_join(session_id, user_id, nickname, role, session_state)
+
         # 5. ParticipantJoined всем остальным в сессии
         joined_msg = ParticipantJoinedMessage(
             payload=ParticipantJoinedPayload(id=user_id, nickname=nickname, role=role)
         )
-        import asyncio
-        await asyncio.sleep(0.5)
         await manager.broadcast(
             session_id, joined_msg.model_dump_json(), exclude_user_id=user_id
         )
@@ -378,6 +385,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         logger.info("Участник отключился: '%s'", nickname, extra=log_extra)
     finally:
+        # Логируем Leave в БД до очистки менеджера
+        await log_leave(session_id, user_id)
         # Гарантированная очистка при любом завершении соединения
         participant = manager.disconnect(session_id, user_id)
         if participant and manager.session_has_members(session_id):
