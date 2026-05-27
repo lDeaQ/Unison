@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+# Корень backend — чтобы тесты могли импортировать `app.*` без манипуляций с sys.path.
+# testpaths указывает где искать тесты (избавляет от случайного сбора в .venv).
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
