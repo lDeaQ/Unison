@@ -240,6 +240,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                         "Play: client_pos=%d server_pos=%d execute_at=%.1f",
                         client_pos, server_pos, execute_at, extra=log_extra,
                     )
+                await log_command(
+                    session_id, user_id, "Play", server_now,
+                    payload={"position_ms": server_pos, "execute_at_ms": execute_at},
+                )
                 continue
 
             if msg_type == "Pause":
@@ -284,6 +288,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                         "Pause: client_pos=%d server_pos=%d execute_at=%.1f",
                         client_pos, server_pos, execute_at, extra=log_extra,
                     )
+                await log_command(
+                    session_id, user_id, "Pause", server_now,
+                    payload={"position_ms": server_pos, "execute_at_ms": execute_at},
+                )
                 continue
 
             if msg_type == "Seek":
@@ -314,6 +322,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                 logger.info(
                     "Seek: position_ms=%d execute_at=%.1f",
                     new_state.position_ms, execute_at, extra=log_extra,
+                )
+                await log_command(
+                    session_id, user_id, "Seek", server_now,
+                    payload={"position_ms": new_state.position_ms, "execute_at_ms": execute_at},
                 )
                 continue
 
@@ -347,6 +359,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     "SetPlaybackRate: rate=%.2f position_ms=%d execute_at=%.1f",
                     new_state.playback_rate, new_state.position_ms, execute_at,
                     extra=log_extra,
+                )
+                await log_command(
+                    session_id, user_id, "SetPlaybackRate", server_now,
+                    payload={
+                        "rate": new_state.playback_rate,
+                        "position_ms": new_state.position_ms,
+                        "execute_at_ms": execute_at,
+                    },
                 )
                 continue
 
