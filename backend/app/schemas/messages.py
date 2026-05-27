@@ -231,6 +231,33 @@ class VideoUrlChangedMessage(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Персональная синхронизация при входе в играющую сессию
+# ---------------------------------------------------------------------------
+
+class SeekReadyPayload(BaseModel):
+    # Payload намеренно пуст: сервер уже знает целевую позицию из своего state.
+    # Сообщение служит сигналом «плеер готов, можно запускать».
+    pass
+
+
+class SeekReadyMessage(BaseModel):
+    type: Literal["SeekReady"]
+    payload: SeekReadyPayload
+
+
+class PersonalPlayPayload(BaseModel):
+    # Те же поля, что PlayBroadcastPayload — клиент обрабатывает их одинаково.
+    position_ms: int
+    server_timestamp_ms: float
+    execute_at_ms: float
+
+
+class PersonalPlayMessage(BaseModel):
+    type: Literal["PersonalPlay"] = "PersonalPlay"
+    payload: PersonalPlayPayload
+
+
+# ---------------------------------------------------------------------------
 # Чат
 # ---------------------------------------------------------------------------
 

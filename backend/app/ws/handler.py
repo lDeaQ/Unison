@@ -22,6 +22,8 @@ from app.schemas.messages import (
     PauseBroadcastMessage,
     PauseBroadcastPayload,
     PauseRequestMessage,
+    PersonalPlayMessage,
+    PersonalPlayPayload,
     PlayBroadcastMessage,
     PlayBroadcastPayload,
     PlayRequestMessage,
@@ -63,6 +65,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _HELLO_TIMEOUT_SEC = 30
+# Дополнительная задержка на буферизацию при входе в играющую сессию.
+# RuTube после seek начинает буферизовать — нужно 2–3 с до старта воспроизведения.
+_PERSONAL_PLAY_BUFFER_MS = 2000
 
 
 def _make_error(code: str, message: str) -> str:
@@ -127,6 +132,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     try:
         # 4. Welcome только этому клиенту — с актуальным состоянием сессии
         session_state = state_store.get_or_create(session_id)
+        logger.info(
+            "Новый клиент %s, is_playing=%s, position_ms=%s",
+            user_id, session_state.is_playing, session_state.position_ms,
+            extra=log_extra,
+        )
         now = server_now_ms()
         welcome = WelcomeMessage(
             payload=WelcomePayload(
@@ -160,7 +170,37 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
             extra=log_extra,
         )
 
-        # 6. Основной цикл — получаем и обрабатываем входящие сообщения
+        # 6. PersonalPlay — только если сессия воспроизводится в момент входа.
+        #    Клиент сделает seek к target_position, дождётся буферизации и сообщит
+        #    SeekReady (мы его просто логируем — PersonalPlay уже отправлен здесь).
+        if session_state.is_playing:
+            personal_now = server_now_ms()
+            # execute_at даёт клиенту EXECUTE_AT_DELAY_MS + _PERSONAL_PLAY_BUFFER_MS
+            # миллисекунд до старта — стандартная задержка + время на буферизацию.
+            personal_execute_at = personal_now + EXECUTE_AT_DELAY_MS + _PERSONAL_PLAY_BUFFER_MS
+            # Позиция вычисляется НА МОМЕНТ execute_at: клиент стартует именно в ту
+            # точку, где будут остальные участники в момент personal_execute_at.
+            target_position_ms = compute_current_position_ms(session_state, personal_execute_at)
+            personal_play = PersonalPlayMessage(
+                payload=PersonalPlayPayload(
+                    position_ms=target_position_ms,
+                    server_timestamp_ms=personal_now,
+                    execute_at_ms=personal_execute_at,
+                )
+            )
+            logger.info(
+                "Отправка PersonalPlay клиенту %s, позиция=%.0f мс, execute_at=%.0f",
+                user_id, target_position_ms, personal_execute_at,
+                extra=log_extra,
+            )
+            await websocket.send_text(personal_play.model_dump_json())
+            logger.info(
+                "PersonalPlay отправлен: target_pos=%d execute_at=%.1f (+%d ms буфер)",
+                target_position_ms, personal_execute_at, _PERSONAL_PLAY_BUFFER_MS,
+                extra=log_extra,
+            )
+
+        # 7. Основной цикл — получаем и обрабатываем входящие сообщения
         while True:
             raw = await websocket.receive_text()
             # t1_candidate фиксируется как можно раньше — до JSON-разбора и валидации
@@ -439,6 +479,16 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     nickname, message_id, len(req.payload.text),
                     extra=log_extra,
                 )
+                continue
+
+            if msg_type == "SeekReady":
+                # PersonalPlay уже отправлен при входе в сессию — здесь только лог.
+                # Валидация схемы не нужна: payload пустой, игнорируем содержимое.
+                server_now = server_now_ms()
+                await log_command(
+                    session_id, user_id, "SeekReady", server_now, payload={}
+                )
+                logger.info("SeekReady получен (клиент готов к PersonalPlay)", extra=log_extra)
                 continue
 
             logger.warning(

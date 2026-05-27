@@ -6,6 +6,7 @@ import { PlaybackSync } from '../playback/PlaybackSync'
 import type {
   ChatMessageBroadcastPayload,
   ParticipantInfo,
+  PersonalPlayPayload,
   TimeSyncResponsePayload,
   WelcomePayload,
   PlayBroadcastPayload,
@@ -26,6 +27,7 @@ export interface UseWebSocketResult {
   playbackSync: PlaybackSync | null
   messages: ChatMessageBroadcastPayload[]
   sendChat: (text: string) => void
+  isSyncing: boolean
 }
 
 export function useWebSocket(sessionId: string, nickname: string): UseWebSocketResult {
@@ -36,6 +38,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
   const [clockSync, setClockSync] = useState<ClockSync | null>(null)
   const [playbackSync, setPlaybackSync] = useState<PlaybackSync | null>(null)
   const [messages, setMessages] = useState<ChatMessageBroadcastPayload[]>([])
+  const [isSyncing, setIsSyncing] = useState(false)
   const clientRef = useRef<WSClient | null>(null)
 
   useEffect(() => {
@@ -53,6 +56,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       () => clock.isReady(),
     )
     setPlaybackSync(playback)
+    playback.onSynced(() => setIsSyncing(false))
 
     client.on('status_change', (s) => {
       const newStatus = s as ConnectionStatus
@@ -77,6 +81,8 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       setParticipants(p.participants)
       setVideoUrl(p.video_url)
       playback.onWelcome(p)
+      // Оверлей только если входим в уже воспроизводящуюся сессию
+      setIsSyncing(p.is_playing)
     })
 
     client.on('message:VideoUrlChanged', (payload) => {
@@ -111,6 +117,11 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
 
     client.on('message:SetPlaybackRate', (payload) => {
       playback.onSetPlaybackRateBroadcast(payload as SetPlaybackRateBroadcastPayload)
+    })
+
+    client.on('message:PersonalPlay', (payload) => {
+      console.log('[WS] PersonalPlay получен:', payload)
+      playback.onPersonalPlayBroadcast(payload as PersonalPlayPayload)
     })
 
     client.on('message:ChatMessage', (payload) => {
@@ -156,5 +167,5 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     }
   }, [])
 
-  return { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat }
+  return { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat, isSyncing }
 }

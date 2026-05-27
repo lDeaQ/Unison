@@ -79,9 +79,10 @@ interface VideoPanelProps {
   videoUrl: string
   sendSetVideoUrl: (url: string) => void
   onAdapterChange?: (adapter: IPlayerAdapter | null) => void
+  isSyncing: boolean
 }
 
-function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange }: VideoPanelProps) {
+function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing }: VideoPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<IPlayerAdapter | null>(null)
   // Ref для колбэка — всегда актуален, но не является зависимостью useEffect.
@@ -136,11 +137,28 @@ function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange }: VideoPanelPr
         </button>
       </form>
       {videoUrl ? (
-        <div
-          ref={containerRef}
-          className="player-container"
-          style={{ width: '100%', aspectRatio: '16/9', background: '#000', marginTop: 8 }}
-        />
+        <div style={{ position: 'relative', marginTop: 8 }}>
+          <div
+            ref={containerRef}
+            className="player-container"
+            style={{ width: '100%', aspectRatio: '16/9', background: '#000' }}
+          />
+          {isSyncing && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(0,0,0,0.72)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: '1.1rem',
+              letterSpacing: '0.02em',
+            }}>
+              Синхронизация…
+            </div>
+          )}
+        </div>
       ) : (
         <div className="player-placeholder">
           Введите ссылку на видео выше
@@ -185,6 +203,15 @@ function PlaybackControls({ sync, disabled, videoUrl }: PlaybackControlsProps) {
           {state.isPlaying ? '⏸ Pause' : '▶ Play'}
         </button>
         <code className="position-display">{formatPosition(state.positionMs)}</code>
+        <button
+          className="btn btn-secondary"
+          style={{ marginTop: 0 }}
+          onClick={() => seek(state.positionMs)}
+          disabled={disabled}
+          title="Отправить всем участникам команду перемотки на текущую позицию"
+        >
+          ⟳ Синхронизировать
+        </button>
       </div>
 
       <div className="playback-row">
@@ -325,7 +352,7 @@ interface RoomScreenProps {
 }
 
 function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
-  const { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat } =
+  const { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat, isSyncing } =
     useWebSocket(SESSION_ID, nickname)
   const sync = useClockSync(clockSync)
   const isConnected = status === 'connected'
@@ -345,6 +372,7 @@ function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
         videoUrl={videoUrl}
         sendSetVideoUrl={sendSetVideoUrl}
         onAdapterChange={(adapter) => playbackSync?.setAdapter(adapter)}
+        isSyncing={isSyncing}
       />
 
       <div>

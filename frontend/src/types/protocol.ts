@@ -132,6 +132,11 @@ export interface SetPlaybackRateBroadcastMessage {
   payload: SetPlaybackRateBroadcastPayload
 }
 
+export interface SeekReadyMessage {
+  type: 'SeekReady'
+  payload: Record<string, never>
+}
+
 export interface SetVideoUrlMessage {
   type: 'SetVideoUrl'
   payload: { video_url: string }
@@ -164,6 +169,17 @@ export interface VideoUrlChangedMessage {
   payload: VideoUrlChangedPayload
 }
 
+export interface PersonalPlayPayload {
+  position_ms: number
+  server_timestamp_ms: number
+  execute_at_ms: number
+}
+
+export interface PersonalPlayMessage {
+  type: 'PersonalPlay'
+  payload: PersonalPlayPayload
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | ParticipantJoinedMessage
@@ -176,6 +192,7 @@ export type ServerMessage =
   | SetPlaybackRateBroadcastMessage
   | VideoUrlChangedMessage
   | ChatMessageBroadcastMessage
+  | PersonalPlayMessage
 
 export type ClientMessage =
   | HelloMessage
@@ -186,3 +203,4 @@ export type ClientMessage =
   | SetPlaybackRateRequestMessage
   | SetVideoUrlMessage
   | ChatMessageRequestMessage
+  | SeekReadyMessage

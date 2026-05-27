@@ -149,6 +149,11 @@ export class ClockSync {
   }
 
   getOffset(): number {
+    if (this.window.length === 0) {
+      // Fallback до первого измерения: грубая оценка через Date.now().
+      // Погрешность ≈ RTT/2 (единицы мс на localhost) — приемлемо для scheduleApply.
+      return Date.now() - performance.now()
+    }
     return this.offset
   }
 

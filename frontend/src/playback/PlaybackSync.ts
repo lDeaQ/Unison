@@ -1,5 +1,6 @@
 import type {
   ClientMessage,
+  PersonalPlayPayload,
   PlayBroadcastPayload,
   PauseBroadcastPayload,
   SeekBroadcastPayload,
@@ -31,6 +32,7 @@ export class PlaybackSync {
   }
   private readonly pendingTimers: Map<CommandType, ReturnType<typeof setTimeout>> = new Map()
   private readonly listeners: Set<() => void> = new Set()
+  private readonly syncedListeners: Set<() => void> = new Set()
   private readonly send: SendFn
   private readonly getOffset: () => number
   private readonly getOffsetReady: () => boolean
@@ -53,23 +55,30 @@ export class PlaybackSync {
     if (!adapter) return
 
     const applyState = () => {
-      const s = this.state
-      const seekSec = s.positionMs / 1000
-      // Даём RuTube 1500 мс на внутреннюю инициализацию после ready,
-      // только потом применяем seek/play — иначе плеер сбрасывает позицию в 0.
-      setTimeout(() => {
-        if (this.adapter !== adapter) return  // адаптер уже заменён
-        if (Number.isFinite(seekSec) && seekSec > 0.5) {
-          adapter.seek(seekSec)
-        }
-        if (s.isPlaying) {
-          // Ещё 500 мс после seek для буферизации в новой позиции
-          setTimeout(() => {
-            if (this.adapter !== adapter) return
-            adapter.play()
-          }, 500)
-        }
-      }, 1500)
+      if (this.adapter !== adapter) return
+
+      const seekSec = this.currentPositionMs() / 1000
+      if (Number.isFinite(seekSec) && seekSec > 0.5) {
+        adapter.seek(seekSec)
+      }
+
+      if (!this.state.isPlaying) return
+
+      // Сессия воспроизводится. После seek RuTube переходит в paused —
+      // это сигнал готовности буфера. Отправляем SeekReady, сервер ответит
+      // PersonalPlay. play() вызовет onPersonalPlayBroadcast, не мы.
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        clearTimeout(fallbackTimer)
+        adapter.off('pause', onPause)
+        this.send({ type: 'SeekReady', payload: {} })
+      }
+      const onPause = () => finish()
+      // 8 секунд — защита на случай если RuTube не пришлёт paused (медленный буфер)
+      const fallbackTimer = setTimeout(finish, 8000)
+      adapter.on('pause', onPause)
     }
 
     if (adapter.isReady()) {
@@ -118,6 +127,29 @@ export class PlaybackSync {
         videoUrl: this.state.videoUrl,
       }
       this.adapter?.setPlaybackRate(p.rate)
+    })
+  }
+
+  // --- PersonalPlay (unicast при входе в играющую сессию) ---
+
+  onPersonalPlayBroadcast(p: PersonalPlayPayload): void {
+    console.log('[PlaybackSync] onPersonalPlay:', p)
+    // Оверлей убирается при получении PersonalPlay — плеер уже в паузе,
+    // буфер готов; execute_at ещё впереди, но визуальный "прыжок" исключён.
+    this.emitSynced()
+    this.scheduleApply('Play', p.execute_at_ms, (localExecAt) => {
+      // applyPlay сохраняет state.positionMs, но для нового клиента нужна
+      // авторитетная позиция от сервера — вручную обновляем оба поля.
+      this.state = {
+        ...this.state,
+        isPlaying: true,
+        positionMs: p.position_ms,
+        anchorPerfNowMs: localExecAt,
+      }
+      // Seek к серверной позиции на execute_at — компенсирует drift
+      // между первым seek (в setAdapter) и моментом старта.
+      this.adapter?.seek(p.position_ms / 1000)
+      this.adapter?.play()
     })
   }
 
@@ -192,6 +224,11 @@ export class PlaybackSync {
     return () => this.listeners.delete(cb)
   }
 
+  onSynced(cb: () => void): () => void {
+    this.syncedListeners.add(cb)
+    return () => this.syncedListeners.delete(cb)
+  }
+
   getState(): Readonly<PlaybackState> {
     return this.state
   }
@@ -204,6 +241,7 @@ export class PlaybackSync {
     this.pendingTimers.forEach((t) => clearTimeout(t))
     this.pendingTimers.clear()
     this.listeners.clear()
+    this.syncedListeners.clear()
   }
 
   // --- Планирование применения команды ---
@@ -218,6 +256,7 @@ export class PlaybackSync {
 
     const localExecAtPerfNow = executeAtServerMs - this.getOffset()
     const delayMs = localExecAtPerfNow - performance.now()
+    console.log('[PlaybackSync] scheduleApply', cmdType, 'delay=', delayMs.toFixed(1) + 'ms')
 
     if (delayMs > 0) {
       const t = setTimeout(() => {
@@ -241,5 +280,9 @@ export class PlaybackSync {
 
   private emitChange(): void {
     this.listeners.forEach((cb) => cb())
+  }
+
+  private emitSynced(): void {
+    this.syncedListeners.forEach((cb) => cb())
   }
 }

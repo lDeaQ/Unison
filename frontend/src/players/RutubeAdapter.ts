@@ -81,15 +81,15 @@ export class RutubeAdapter extends BasePlayerAdapter {
   }
 
   async seek(seconds: number): Promise<void> {
+    if (!this.ready) {
+      this.pendingSeekSec = Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+      return
+    }
     if (!Number.isFinite(seconds) || seconds < 0) {
       console.warn('[RutubeAdapter] seek: невалидное значение', seconds, '— игнорируем')
       return
     }
     const time = TIME_UNIT_MS ? seconds * 1000 : seconds
-    if (!this.ready) {
-      this.pendingSeekSec = seconds
-      return
-    }
     this.sendToPlayer({ type: 'player:setCurrentTime', data: { time } })
     this.currentTimeSec = seconds
   }
