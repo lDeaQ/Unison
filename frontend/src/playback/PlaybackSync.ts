@@ -14,6 +14,7 @@ import {
   applySeek,
   serverMsToLocalPerfNow,
 } from './playbackMath'
+import type { IPlayerAdapter } from '../players/IPlayerAdapter'
 
 type SendFn = (msg: ClientMessage) => void
 type CommandType = 'Play' | 'Pause' | 'Seek' | 'SetPlaybackRate'
@@ -33,6 +34,7 @@ export class PlaybackSync {
   private readonly send: SendFn
   private readonly getOffset: () => number
   private readonly getOffsetReady: () => boolean
+  private adapter: IPlayerAdapter | null = null
 
   constructor(
     send: SendFn,
@@ -44,23 +46,51 @@ export class PlaybackSync {
     this.getOffsetReady = getOffsetReady
   }
 
+  // --- Адаптер плеера ---
+
+  setAdapter(adapter: IPlayerAdapter | null): void {
+    this.adapter = adapter
+    if (!adapter) return
+
+    const onReady = () => {
+      adapter.off('ready', onReady)
+      const s = this.state
+      // Seek до ненулевой позиции — до play, иначе видео начнёт с начала и перепрыгнет
+      if (s.positionMs > 0) {
+        adapter.seek(s.positionMs / 1000)
+      }
+      if (s.isPlaying) {
+        adapter.play()
+      }
+    }
+
+    // Сначала подписываемся, потом проверяем isReady — исключает гонку
+    adapter.on('ready', onReady)
+    if (adapter.isReady()) {
+      onReady()
+    }
+  }
+
   // --- Входящие бродкасты ---
 
   onPlayBroadcast(p: PlayBroadcastPayload): void {
     this.scheduleApply('Play', p.execute_at_ms, (localExecAt) => {
       this.state = applyPlay(this.state, localExecAt)
+      this.adapter?.play()
     })
   }
 
   onPauseBroadcast(p: PauseBroadcastPayload): void {
     this.scheduleApply('Pause', p.execute_at_ms, (localExecAt) => {
       this.state = applyPause(this.state, localExecAt)
+      this.adapter?.pause()
     })
   }
 
   onSeekBroadcast(p: SeekBroadcastPayload): void {
     this.scheduleApply('Seek', p.execute_at_ms, (localExecAt) => {
       this.state = applySeek(this.state, localExecAt, p.position_ms)
+      this.adapter?.seek(p.position_ms / 1000)  // мс → секунды (интерфейс адаптера в секундах)
     })
   }
 
@@ -75,6 +105,7 @@ export class PlaybackSync {
         playbackRate: p.rate,
         videoUrl: this.state.videoUrl,
       }
+      this.adapter?.setPlaybackRate(p.rate)
     })
   }
 

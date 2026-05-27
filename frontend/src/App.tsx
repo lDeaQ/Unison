@@ -256,6 +256,7 @@ function RoomScreen({ nickname, onLeave }: RoomScreenProps) {
       <VideoPanel
         videoUrl={videoUrl}
         sendSetVideoUrl={sendSetVideoUrl}
+        onAdapterChange={(adapter) => playbackSync?.setAdapter(adapter)}
       />
 
       <div>
