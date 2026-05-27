@@ -164,3 +164,80 @@
 `PlaybackSync` уже готов принять любой адаптер: вместо обновления локального виртуального состояния `applyFn` будет вызывать `adapter.play() / .pause() / .seek(ms)`. Интерфейс `IPlayerAdapter` определён в `frontend/src/players/IPlayerAdapter.ts`.
 
 `PlayerFactory.create(url)` уже парсит URL и определяет платформу — нужно только дописать конкретные классы под каждый хостинг.
+
+---
+
+## Сессия 5 — адаптер RuTube (завершена) — 27.05.2026
+
+### Что сделано
+
+#### Протокол — новые команды
+
+- **`SetVideoUrl` (client → server):** клиент отправляет URL видео; сервер сохраняет в `SessionState.video_url`, сбрасывает `is_playing=False` и `position_ms=0`, рассылает `VideoUrlChanged` всем участникам. No-op при совпадении URL (fire-and-forget, без подтверждения).
+- **`VideoUrlChanged` (server → all clients):** все участники создают/заменяют адаптер плеера. Сброс воспроизведения в начало — обоснование: длина нового видео неизвестна, старая позиция может быть невалидной.
+- `apply_set_video_url` в `session_state.py` — новая чистая функция; `playback_rate` сохраняется (настройка пользователя), остальное сбрасывается.
+- `docs/protocol.md` обновлён.
+
+#### Адаптер RuTube (`frontend/src/players/RutubeAdapter.ts`)
+
+- Расширяет `BasePlayerAdapter`. Создаёт `<iframe>` с embed URL `https://rutube.ru/play/embed/<video_id>`.
+- Управление через `postMessage`: команды `player:play`, `player:pause`, `player:setCurrentTime`. Двойная фильтрация сообщений: `e.source === iframe.contentWindow` + `e.origin === 'https://rutube.ru'` — защита от postMessage-инъекций.
+- Буферизация команд до `player:ready`: `pendingPlay` + `pendingSeekSec`. Порядок применения: сначала seek, потом play — иначе видео начнёт играть с начала и перепрыгнет.
+- **`TIME_UNIT_MS = false`** (секунды по умолчанию). Флаг + диагностическое логирование первых 5 ненулевых `player:currentTime` — для эмпирической проверки единицы.
+- **`setPlaybackRate(rate ≠ 1.0)`** → `console.warn` и resolve без действия. RuTube embed API не поддерживает смену скорости.
+- Регулярное выражение извлечения video_id: `/rutube\.ru\/(?:video|play\/embed)\/([a-zA-Z0-9]+)/i` — буквы не только hex.
+
+#### PlayerFactory
+
+- `create(url, container)`: для `'rutube'` возвращает `RutubeAdapter`. Для остальных платформ — `Error("ещё не реализован")`.
+- `detect(url)` — публичный метод (ранее приватная функция), используется в UI для индикатора предупреждения.
+
+#### Интеграция PlaybackSync (`PlaybackSync.setAdapter`)
+
+- Метод `setAdapter(adapter | null)`: race-safe подписка (`on('ready', onReady)` до проверки `isReady()`, внутри `onReady` — `off` для исключения двойного вызова).
+- При подключении адаптера к играющей/смещённой сессии — автоматический seek + play после `ready`.
+- Бродкасты Play/Pause вызывают `adapter.play()` / `adapter.pause()`.
+- Seek вызывает `adapter.seek(position_ms / 1000)` — конвертация мс→секунды на границе PlaybackSync/IPlayerAdapter.
+- SetPlaybackRate вызывает `adapter.setPlaybackRate(rate)` — RuTube выдаст `console.warn`.
+
+#### UI (`App.tsx`)
+
+- **`VideoPanel`**: URL-инпут + кнопка «Загрузить» → `sendSetVideoUrl()` → WS → сервер → `VideoUrlChanged` → всем. `<div ref={containerRef}>` (aspect-ratio 16:9) служит контейнером для iframe.
+- Жизненный цикл адаптера управляется через `useEffect([videoUrl])`. **Критически:** `onAdapterChange` хранится в `onAdapterChangeRef` — не является зависимостью `useEffect`. Это исключает пересоздание iframe при каждом NTP-обновлении ClockSync (было: 1 раз в секунду в warmup-фазе).
+- **Индикатор скорости**: если `PlayerFactory.detect(videoUrl) === 'rutube'` → рядом с селектором скорости показывается `«⚠ RuTube: изменение скорости не поддерживается embed API»`.
+- При пустом `videoUrl` — заглушка «Введите ссылку на видео выше».
+
+### Проверено вручную
+
+| Сценарий | Статус |
+|---|---|
+| Два клиента, один URL RuTube, Play | ✅ PASS — оба iframe воспроизводят синхронно |
+| Seek через UI | ✅ PASS — оба перепрыгивают на одну позицию |
+| VideoUrlChanged рассылается обоим | ✅ PASS |
+| iframe не пересоздаётся при NTP-тиках | ✅ PASS (после фикса `onAdapterChangeRef`) |
+| SetPlaybackRate ≠ 1.0 | ✅ console.warn + UI-предупреждение |
+
+### Метрики
+
+- Единица `player:currentTime`: **уточняется** — первое событие пришло с `raw=0` (позиция в начале видео неразличима в мс и сек). Диагностическое логирование первых 5 ненулевых значений оставлено активным. Флаг `TIME_UNIT_MS = false` (секунды) — текущее предположение.
+
+### Архитектурные решения (для главы 2)
+
+| Решение | Обоснование |
+|---|---|
+| postMessage как единственный механизм | Кросс-origin iframe: `contentDocument` запрещён SOP, `<video>` только для своего контента. postMessage — стандарт HTML5 |
+| Адаптер инжектируется в PlaybackSync, а не наследует | SRP: sync-логика и iframe API — разные ответственности; адаптер сменяем без пересоздания PlaybackSync (который хранит NTP-историю) |
+| URL — серверно-авторитетное состояние | Конкурентная смена URL двумя клиентами: без сервера нет консистентности; с сервером — сериализация, все видят одно видео |
+| Ref-паттерн для колбэка в useEffect | Стабилизация зависимостей: React-компонент рендерится при каждом NTP-тике, инлайн-функция → новая ссылка → useEffect пересоздаёт iframe. Ref обновляется вне deps-массива |
+
+### TODO (отложено)
+
+- **Определение единицы `player:currentTime`**: нужно воспроизвести видео несколько секунд и прочитать диагностику. Если `raw > 100` при позиции ~3 сек → мс, переключить `TIME_UNIT_MS = true`.
+- **Действия пользователя внутри iframe** (пауза кнопкой плеера): PlaybackSync не подписывается на события адаптера (риск петли событий). Отдельная итерация с `suppressionCount`.
+- **Обработка ошибок плеера**: геоблокировки, несуществующие видео → UI-уведомление.
+- **VK Video адаптер** — следующий приоритет.
+
+### Что дальше
+
+- VK Video адаптер (`VKVideoAdapter.ts`): отличие — загрузка внешнего JS-скрипта `VK.VideoPlayer`, более сложная инициализация.
+- Проверить `player:currentTime` единицу времени на реальном воспроизведении.
