@@ -83,18 +83,23 @@ interface VideoPanelProps {
 function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange }: VideoPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<IPlayerAdapter | null>(null)
+  // Ref для колбэка — всегда актуален, но не является зависимостью useEffect.
+  // Это исключает пересоздание адаптера при каждом рендере родителя (NTP-тик и т.п.).
+  const onAdapterChangeRef = useRef(onAdapterChange)
+  onAdapterChangeRef.current = onAdapterChange
   const [urlInput, setUrlInput] = useState('')
 
   useEffect(() => {
-    // React запускает cleanup предыдущего эффекта ДО нового — старый адаптер
-    // уже уничтожен к этому моменту, создаём новый
+    // Единственная зависимость — videoUrl (строка). Срабатывает только при реальной
+    // смене URL, не при NTP-обновлениях или других ре-рендерах родителя.
+    console.log('[VideoPanel] useEffect: videoUrl =', videoUrl || '(пусто)')
     if (!videoUrl || !containerRef.current) return
 
     let adapter: IPlayerAdapter | null = null
     try {
       adapter = PlayerFactory.create(videoUrl, containerRef.current)
       adapterRef.current = adapter
-      onAdapterChange?.(adapter)
+      onAdapterChangeRef.current?.(adapter)
     } catch (e) {
       console.error('[VideoPanel] Ошибка создания адаптера:', e)
     }
@@ -102,9 +107,9 @@ function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange }: VideoPanelPr
     return () => {
       adapter?.destroy()
       adapterRef.current = null
-      onAdapterChange?.(null)
+      onAdapterChangeRef.current?.(null)
     }
-  }, [videoUrl, onAdapterChange])
+  }, [videoUrl])  // только строка — стабильный примитив
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
