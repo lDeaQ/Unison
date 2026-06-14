@@ -224,7 +224,7 @@ export class PlaybackSync {
   }
 
   requestSeek(positionMs: number): void {
-    this.send({ type: 'Seek', payload: { position_ms: positionMs } })
+    this.send({ type: 'Seek', payload: { position_ms: Math.round(positionMs) } })
   }
 
   requestSetRate(rate: number): void {
