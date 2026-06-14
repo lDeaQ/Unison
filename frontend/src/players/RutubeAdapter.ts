@@ -112,6 +112,10 @@ export class RutubeAdapter extends BasePlayerAdapter {
     return this.durationSec
   }
 
+  getDurationMs(): number {
+    return this.durationSec * 1000
+  }
+
   isReady(): boolean {
     return this.ready
   }
