@@ -41,7 +41,6 @@ export class RutubeAdapter extends BasePlayerAdapter {
   private readonly LOG_CURRENT_TIME_LIMIT = 5
 
   // Буфер команд до события player:ready
-  private pendingPlay = false
   private pendingSeekSec: number | null = null
 
   // RuTube бросает NaN если seek приходит сразу после player:ready — нужна пауза 500мс
@@ -68,18 +67,12 @@ export class RutubeAdapter extends BasePlayerAdapter {
   }
 
   async play(): Promise<void> {
-    if (!this.ready) {
-      this.pendingPlay = true
-      return
-    }
+    if (!this.ready) return
     this.sendToPlayer({ type: 'player:play' })
   }
 
   async pause(): Promise<void> {
-    if (!this.ready) {
-      this.pendingPlay = false
-      return
-    }
+    if (!this.ready) return
     this.sendToPlayer({ type: 'player:pause' })
   }
 
@@ -132,7 +125,6 @@ export class RutubeAdapter extends BasePlayerAdapter {
     window.removeEventListener('message', this.messageHandler)
     this.iframe.remove()
     this.ready = false
-    this.pendingPlay = false
     this.pendingSeekSec = null
     this.listeners.clear()
   }
@@ -212,9 +204,6 @@ export class RutubeAdapter extends BasePlayerAdapter {
       this.currentTimeSec = this.pendingSeekSec
       this.pendingSeekSec = null
     }
-    // pendingPlay намеренно НЕ применяется здесь: play() вызывается явно через adapter.play()
-    // после того как PlaybackSync получит broadcast и сам решит когда стартовать.
-    this.pendingPlay = false
     this.emit('ready')
   }
 }

@@ -1,7 +1,10 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.analytics import router as analytics_router
 from app.db import init_db
@@ -56,3 +59,27 @@ app.include_router(analytics_router)
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok", "version": "0.1.0"}
+
+
+FRONTEND_DIST = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+)
+
+# Статические ассеты монтируются ДО catch-all маршрута, иначе тот перехватит их первым
+if os.path.exists(FRONTEND_DIST):
+    _assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str) -> FileResponse:
+    index = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index):
+        return FileResponse(index)
+    # Фронт не собран — возвращаем подсказку через 404
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=404,
+        detail="Frontend not built. Run: cd frontend && npm run build",
+    )

@@ -63,7 +63,11 @@ export class WSClient {
     // 'connecting' устанавливается ДО создания WebSocket
     this.setStatus('connecting')
 
-    const url = `/ws/${this.sessionId}`
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsHost = window.location.hostname
+    const wsPort = window.location.protocol === 'https:' ? '' : ':8000'
+    const base = import.meta.env.VITE_WS_URL ?? `${wsProtocol}//${wsHost}${wsPort}`
+    const url = `${base}/ws/${this.sessionId}`
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => this.handleOpen()

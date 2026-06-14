@@ -1,5 +1,6 @@
 import type { IPlayerAdapter } from './IPlayerAdapter'
 import { RutubeAdapter } from './RutubeAdapter'
+import { VKVideoAdapter } from './VKVideoAdapter'
 
 export type Platform = 'rutube' | 'vkvideo' | 'youtube' | 'vimeo'
 
@@ -17,6 +18,8 @@ export class PlayerFactory {
     switch (platform) {
       case 'rutube':
         return new RutubeAdapter(url, container)
+      case 'vkvideo':
+        return new VKVideoAdapter(url, container)
       case null:
         throw new Error(`Неизвестная платформа: ${url}`)
       default:

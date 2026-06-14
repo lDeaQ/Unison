@@ -196,7 +196,7 @@ function ProgressBar({ positionMs, durationMs, onSeek, disabled }: ProgressBarPr
     seekFromClientX(e.clientX)
 
     const onMove = (me: MouseEvent) => { if (isDragging.current) seekFromClientX(me.clientX) }
-    const onUp = (me: MouseEvent) => {
+    const onUp = (_me: MouseEvent) => {
       isDragging.current = false
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
