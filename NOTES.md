@@ -324,3 +324,85 @@ RuTube не шлёт `player:changeState {paused}` при загрузке — �
 
 - **Нагрузочный тест** — эмуляция 30 клиентов, измерение рассинхрона (≤ 400 мс из ТЗ). Критично для главы 4.
 - **VK Video адаптер** (`VKVideoAdapter.ts`).
+
+---
+
+## Сессии 9–10 — редизайн UI + фиксы синхронизации — 14.06.2026
+
+### Сделано (по коммитам)
+
+- `feat(ui)`: кнопка «Синхронизация для всех» — полная ширина, жёлтая.
+- `fix(sync)`: сброс позиции при смене видео — исправлен дрейф при `VideoUrlChanged`.
+- `fix(seek)`: `Math.round(position_ms)` в `SeekRequest` — сервер ожидает `int`, клиент передавал `float`.
+- `feat(ui)`: полный редизайн — **Unison** (переименование WatchTogether), JetBrains Mono, тёмная тема (`#1a1a1a` / акцент `#f0b429`). Layout: хедер + левая панель 220px (участники) + центр. PlayerControls: прогресс-бар с drag/click seek, MM:SS, селект скорости. ChatPanel: сворачивается, своё сообщение жёлтым. SVG-корона для владельца. JoinScreen — центрированная карточка.
+- `fix(player)`: дополнительная задержка 500 мс в `RutubeAdapter.seek()` сразу после `player:ready` — предотвращает сброс позиции в 0 при входе в играющую сессию.
+
+---
+
+## Сессия 11 — VKVideoAdapter + раздача статики + авто-WS URL — 14.06.2026
+
+### Что сделано
+
+#### Адаптер VK Video (`frontend/src/players/VKVideoAdapter.ts`)
+
+Полная реализация `IPlayerAdapter` для VK Video:
+
+- **Загрузка SDK**: `loadVKScript()` с модульной переменной `vkScriptPromise` — скрипт `https://vk.com/js/api/videoplayer.js` загружается один раз даже при нескольких одновременно создаваемых адаптерах.
+- **Разбор URL**: регекс `/video(-?\d+)_(\d+)/` — покрывает `vk.com/video-123_456` (группы, oid<0), `vk.com/video123_456` (пользователи, oid>0), `vkvideo.ru/video-...`.
+- **Embed URL**: `https://vk.com/video_ext.php?oid=OID&id=ID&js_api=1&hd=2`.
+- **Инициализация**: `VK.VideoPlayer(iframe)` вызывается асинхронно после загрузки скрипта; ошибки — `emit('error')`.
+- **События**: `inited` → `'ready'`, `started`/`resumed` → `'play'`, `paused` → `'pause'`, `timeupdate` → `'timeupdate'` + обновление `durationSec` из payload, `error` → `'error'`.
+- **`justBecameReady`**: задержка 500 мс перед первым seek после `inited` — тот же паттерн что в `RutubeAdapter`.
+- **`setPlaybackRate`**: проверяет `typeof player.setPlaybackRate === 'function'`; при отсутствии — `console.warn`.
+- **`destroy`**: `player.destroy?.()` (опциональная цепочка — метод не гарантирован VK API).
+- Типизация через `declare global { interface Window { VK?: ... } }`.
+
+#### PlayerFactory
+
+- Добавлен `case 'vkvideo': return new VKVideoAdapter(url, container)`.
+
+#### FastAPI раздаёт фронт (`backend/app/main.py`)
+
+Всё приложение на одном порту 8000:
+
+- `app.mount('/assets', StaticFiles(...))` монтируется **до** catch-all — иначе Starlette матчит `/{full_path:path}` первым и статика не отдаётся.
+- `@app.get('/{full_path:path}')` → `FileResponse('frontend/dist/index.html')` — SPA fallback.
+- Если `dist/` не собран — `HTTPException(404, "Run: cd frontend && npm run build")`.
+
+#### WSClient — авто-определение WS URL (`frontend/src/ws/WSClient.ts`)
+
+```ts
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+const wsHost = window.location.hostname
+const wsPort = window.location.protocol === 'https:' ? '' : ':8000'
+const base = import.meta.env.VITE_WS_URL ?? `${wsProtocol}//${wsHost}${wsPort}`
+```
+
+- HTTP → `ws://host:8000` (локалка, явный порт).
+- HTTPS → `wss://host` (туннель/прод, стандартный 443, без порта).
+- `VITE_WS_URL` — ручной override через `.env.local` (в `.gitignore`).
+
+#### Прочее
+
+- `vite.config.ts`: `build.outDir: 'dist'` явно, `allowedHosts: true` (нужно для tunnelmole-домена).
+- `frontend/src/vite-env.d.ts`: типизация `VITE_WS_URL?: string` для strict-режима TypeScript.
+- TypeScript-фиксы для `npm run build`: `me` → `_me` в `App.tsx`; удалено неиспользуемое поле `pendingPlay` (+ все присваивания) из `RutubeAdapter` и `VKVideoAdapter`.
+
+### Коммит
+
+`af5024e` — 8 файлов, 239 добавлений / 15 удалений. Новые файлы: `VKVideoAdapter.ts`, `vite-env.d.ts`.
+
+### Архитектурные решения (для главы 2)
+
+| Решение | Обоснование |
+|---|---|
+| `vkScriptPromise` на уровне модуля | Несколько адаптеров до загрузки → один `<script>` тег, один промис |
+| `app.mount` до `@app.get('/{path}')` | Порядок маршрутов в Starlette: catch-all матчит раньше mount если объявлен первым |
+| Пустой `wsPort` на HTTPS | Tunnelmole и прод слушают на 443; явный `:8000` сломал бы соединение |
+| `allowedHosts: true` | Vite 5+ блокирует хосты не из whitelist — туннель-домен не попадает в автоматически разрешённые |
+
+### Что дальше
+
+1. **Нагрузочный тест** — 30 клиентов, рассинхрон ≤ 400 мс (ТЗ). Критично для главы 4 диплома.
+2. Убрать debug-логи из `PlaybackSync` и `useWebSocket` перед демонстрацией.
+3. Глава диплома: архитектура адаптеров, протокол синхронизации.
