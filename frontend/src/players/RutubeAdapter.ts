@@ -44,6 +44,9 @@ export class RutubeAdapter extends BasePlayerAdapter {
   private pendingPlay = false
   private pendingSeekSec: number | null = null
 
+  // RuTube бросает NaN если seek приходит сразу после player:ready — нужна пауза 500мс
+  private justBecameReady = false
+
   private readonly messageHandler: (e: MessageEvent) => void
 
   constructor(url: string, container: HTMLElement) {
@@ -81,13 +84,18 @@ export class RutubeAdapter extends BasePlayerAdapter {
   }
 
   async seek(seconds: number): Promise<void> {
-    if (!this.ready) {
-      this.pendingSeekSec = Number.isFinite(seconds) && seconds >= 0 ? seconds : null
-      return
-    }
+    console.log('[RutubeAdapter] seek() called, seconds=', seconds, 'ready=', this.ready, 'pending=', this.pendingSeekSec)
     if (!Number.isFinite(seconds) || seconds < 0) {
       console.warn('[RutubeAdapter] seek: невалидное значение', seconds, '— игнорируем')
       return
+    }
+    if (!this.ready) {
+      this.pendingSeekSec = seconds
+      return
+    }
+    if (this.justBecameReady) {
+      this.justBecameReady = false
+      await new Promise<void>((r) => setTimeout(r, 500))
     }
     const time = TIME_UNIT_MS ? seconds * 1000 : seconds
     this.sendToPlayer({ type: 'player:setCurrentTime', data: { time } })
@@ -196,17 +204,17 @@ export class RutubeAdapter extends BasePlayerAdapter {
 
   private onPlayerReady(): void {
     this.ready = true
-    // Сначала seek, потом play — иначе видео начнёт играть с начала и перепрыгнет
+    this.justBecameReady = true
+    console.log('[RutubeAdapter] onReady, applying pendingSeekSec=', this.pendingSeekSec)
     if (this.pendingSeekSec !== null) {
       const time = TIME_UNIT_MS ? this.pendingSeekSec * 1000 : this.pendingSeekSec
       this.sendToPlayer({ type: 'player:setCurrentTime', data: { time } })
       this.currentTimeSec = this.pendingSeekSec
       this.pendingSeekSec = null
     }
-    if (this.pendingPlay) {
-      this.sendToPlayer({ type: 'player:play' })
-      this.pendingPlay = false
-    }
+    // pendingPlay намеренно НЕ применяется здесь: play() вызывается явно через adapter.play()
+    // после того как PlaybackSync получит broadcast и сам решит когда стартовать.
+    this.pendingPlay = false
     this.emit('ready')
   }
 }

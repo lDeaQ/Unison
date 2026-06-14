@@ -57,7 +57,9 @@ export class PlaybackSync {
     const applyState = () => {
       if (this.adapter !== adapter) return
 
-      const seekSec = this.currentPositionMs() / 1000
+      const positionMs = this.currentPositionMs()
+      const seekSec = positionMs / 1000
+      console.log('[PlaybackSync] setAdapter seek, positionMs=', positionMs)
       if (Number.isFinite(seekSec) && seekSec > 0.5) {
         adapter.seek(seekSec)
       }
@@ -210,12 +212,14 @@ export class PlaybackSync {
       this.state = { ...welcomeState, positionMs: computedPos }
     }
 
+    console.log('[PlaybackSync] onWelcome applied, positionMs=', this.state.positionMs)
     this.emitChange()
   }
 
   // --- Действия пользователя (только send; state меняется после бродкаста) ---
 
   requestPlay(): void {
+    console.log('[PlaybackSync] requestPlay, state.positionMs=', this.state.positionMs)
     this.send({ type: 'Play', payload: { position_ms: this.currentPositionMs() } })
   }
 
