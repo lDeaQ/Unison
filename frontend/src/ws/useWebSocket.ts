@@ -88,6 +88,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     client.on('message:VideoUrlChanged', (payload) => {
       const p = payload as VideoUrlChangedPayload
       setVideoUrl(p.video_url)
+      playback.onVideoUrlChanged()
     })
 
     client.on('message:ParticipantJoined', (payload) => {

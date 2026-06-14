@@ -153,6 +153,20 @@ export class PlaybackSync {
     })
   }
 
+  // --- VideoUrlChanged ---
+
+  onVideoUrlChanged(): void {
+    this.state = {
+      ...this.state,
+      isPlaying: false,
+      positionMs: 0,
+      anchorPerfNowMs: performance.now(),
+    }
+    this.pendingTimers.forEach(clearTimeout)
+    this.pendingTimers.clear()
+    this.emitChange()
+  }
+
   // --- Welcome ---
 
   onWelcome(w: WelcomePayload): void {
