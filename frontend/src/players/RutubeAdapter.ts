@@ -187,6 +187,10 @@ export class RutubeAdapter extends BasePlayerAdapter {
         break
       }
 
+      case 'player:playComplete':
+        this.emit('ended')
+        break
+
       case 'player:error':
         console.error('[RutubeAdapter] player:error', parsed.data)
         this.emit('error', parsed.data)

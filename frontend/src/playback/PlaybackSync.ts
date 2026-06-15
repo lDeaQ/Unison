@@ -83,6 +83,12 @@ export class PlaybackSync {
       adapter.on('pause', onPause)
     }
 
+    const onEnded = () => {
+      if (this.adapter !== adapter) return
+      this.requestPause()
+    }
+    adapter.on('ended', onEnded)
+
     if (adapter.isReady()) {
       applyState()
     } else {
