@@ -7,6 +7,8 @@ import type {
   ChatMessageBroadcastPayload,
   ParticipantInfo,
   PersonalPlayPayload,
+  Role,
+  RoleChangedPayload,
   TimeSyncResponsePayload,
   WelcomePayload,
   PlayBroadcastPayload,
@@ -20,9 +22,14 @@ export interface UseWebSocketResult {
   status: ConnectionStatus
   participants: ParticipantInfo[]
   myUserId: string | null
+  myRole: Role | null
   videoUrl: string
+  roomClosed: boolean
   reconnect: () => void
   sendSetVideoUrl: (url: string) => void
+  sendGrantAdmin: (targetUserId: string) => void
+  sendRevokeAdmin: (targetUserId: string) => void
+  sendCloseRoom: () => void
   clockSync: ClockSync | null
   playbackSync: PlaybackSync | null
   messages: ChatMessageBroadcastPayload[]
@@ -34,19 +41,21 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
   const [participants, setParticipants] = useState<ParticipantInfo[]>([])
   const [myUserId, setMyUserId] = useState<string | null>(null)
+  const [myRole, setMyRole] = useState<Role | null>(null)
   const [videoUrl, setVideoUrl] = useState<string>('')
+  const [roomClosed, setRoomClosed] = useState(false)
   const [clockSync, setClockSync] = useState<ClockSync | null>(null)
   const [playbackSync, setPlaybackSync] = useState<PlaybackSync | null>(null)
   const [messages, setMessages] = useState<ChatMessageBroadcastPayload[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
   const clientRef = useRef<WSClient | null>(null)
+  // Ref для доступа к myUserId внутри WS-колбэков без stale closure
+  const myUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     const client = new WSClient()
     clientRef.current = client
 
-    // ClockSync и PlaybackSync создаются ровно один раз на жизнь эффекта
-    // (= одна пара sessionId/nickname). Реконнекты не пересоздают их.
     const clock = new ClockSync((msg) => client.send(msg))
     setClockSync(clock)
 
@@ -62,11 +71,6 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       const newStatus = s as ConnectionStatus
       setStatus(newStatus)
 
-      // Управление ClockSync по статусу WebSocket:
-      //  connected → жёсткий сброс окна и запуск опроса (после реконнекта
-      //  сеть могла измениться — старые измерения недостоверны).
-      //  disconnected/reconnecting → стоп; накопленный offset обнулится
-      //  при следующем reset().
       if (newStatus === 'connected') {
         clock.reset()
         clock.start()
@@ -77,11 +81,14 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
 
     client.on('message:Welcome', (payload) => {
       const p = payload as WelcomePayload
+      myUserIdRef.current = p.your_user_id
       setMyUserId(p.your_user_id)
       setParticipants(p.participants)
       setVideoUrl(p.video_url)
+      // Определяем собственную роль из списка участников
+      const myInfo = p.participants.find((pt) => pt.id === p.your_user_id)
+      setMyRole(myInfo?.role ?? 'participant')
       playback.onWelcome(p)
-      // Оверлей только если входим в уже воспроизводящуюся сессию
       setIsSyncing(p.is_playing)
     })
 
@@ -98,6 +105,23 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     client.on('message:ParticipantLeft', (payload) => {
       const { id } = payload as { id: string; nickname: string }
       setParticipants((prev) => prev.filter((p) => p.id !== id))
+    })
+
+    client.on('message:RoleChanged', (payload) => {
+      const p = payload as RoleChangedPayload
+      setParticipants((prev) =>
+        prev.map((part) =>
+          part.id === p.user_id ? { ...part, role: p.new_role } : part,
+        ),
+      )
+      if (p.user_id === myUserIdRef.current) {
+        setMyRole(p.new_role)
+      }
+    })
+
+    client.on('message:RoomClosed', () => {
+      setRoomClosed(true)
+      client.disconnect()
     })
 
     client.on('message:TimeSyncResponse', (payload) => {
@@ -135,8 +159,6 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
 
     client.on('message:Error', (payload) => {
       const err = payload as { code: string; message: string }
-      // Согласовано: на Error в ответ на TimeSyncRequest — warn и продолжаем.
-      // Все остальные Error тоже логируем единообразно.
       console.warn('[server Error]', err.code, err.message)
     })
 
@@ -161,6 +183,18 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     clientRef.current?.send({ type: 'SetVideoUrl', payload: { video_url: url } })
   }, [])
 
+  const sendGrantAdmin = useCallback((targetUserId: string) => {
+    clientRef.current?.send({ type: 'GrantAdmin', payload: { target_user_id: targetUserId } })
+  }, [])
+
+  const sendRevokeAdmin = useCallback((targetUserId: string) => {
+    clientRef.current?.send({ type: 'RevokeAdmin', payload: { target_user_id: targetUserId } })
+  }, [])
+
+  const sendCloseRoom = useCallback(() => {
+    clientRef.current?.send({ type: 'CloseRoom', payload: {} })
+  }, [])
+
   const sendChat = useCallback((text: string) => {
     const trimmed = text.trim()
     if (trimmed) {
@@ -168,5 +202,22 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     }
   }, [])
 
-  return { status, participants, myUserId, videoUrl, reconnect, sendSetVideoUrl, clockSync, playbackSync, messages, sendChat, isSyncing }
+  return {
+    status,
+    participants,
+    myUserId,
+    myRole,
+    videoUrl,
+    roomClosed,
+    reconnect,
+    sendSetVideoUrl,
+    sendGrantAdmin,
+    sendRevokeAdmin,
+    sendCloseRoom,
+    clockSync,
+    playbackSync,
+    messages,
+    sendChat,
+    isSyncing,
+  }
 }

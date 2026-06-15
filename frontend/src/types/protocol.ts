@@ -1,7 +1,9 @@
+export type Role = 'creator' | 'admin' | 'participant'
+
 export interface ParticipantInfo {
   id: string
   nickname: string
-  role: string // "owner" | "participant"
+  role: Role
 }
 
 // --- Клиент → сервер ---
@@ -41,6 +43,21 @@ export interface SeekRequestMessage {
 export interface SetPlaybackRateRequestMessage {
   type: 'SetPlaybackRate'
   payload: { rate: number }
+}
+
+export interface GrantAdminMessage {
+  type: 'GrantAdmin'
+  payload: { target_user_id: string }
+}
+
+export interface RevokeAdminMessage {
+  type: 'RevokeAdmin'
+  payload: { target_user_id: string }
+}
+
+export interface CloseRoomMessage {
+  type: 'CloseRoom'
+  payload: Record<string, never>
 }
 
 // --- Сервер → клиент ---
@@ -180,6 +197,22 @@ export interface PersonalPlayMessage {
   payload: PersonalPlayPayload
 }
 
+export interface RoleChangedPayload {
+  user_id: string
+  new_role: Role
+  reason: 'granted' | 'revoked' | 'creator_transferred'
+}
+
+export interface RoleChangedMessage {
+  type: 'RoleChanged'
+  payload: RoleChangedPayload
+}
+
+export interface RoomClosedMessage {
+  type: 'RoomClosed'
+  payload: Record<string, never>
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | ParticipantJoinedMessage
@@ -193,6 +226,8 @@ export type ServerMessage =
   | VideoUrlChangedMessage
   | ChatMessageBroadcastMessage
   | PersonalPlayMessage
+  | RoleChangedMessage
+  | RoomClosedMessage
 
 export type ClientMessage =
   | HelloMessage
@@ -204,3 +239,6 @@ export type ClientMessage =
   | SetVideoUrlMessage
   | ChatMessageRequestMessage
   | SeekReadyMessage
+  | GrantAdminMessage
+  | RevokeAdminMessage
+  | CloseRoomMessage
