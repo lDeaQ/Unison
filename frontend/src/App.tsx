@@ -410,6 +410,7 @@ function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing }: V
   const onAdapterChangeRef = useRef(onAdapterChange)
   onAdapterChangeRef.current = onAdapterChange
   const [urlInput, setUrlInput] = useState('')
+  const [urlError, setUrlError] = useState('')
 
   useEffect(() => {
     console.log('[VideoPanel] useEffect: videoUrl =', videoUrl || '(пусто)')
@@ -434,10 +435,14 @@ function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing }: V
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = urlInput.trim()
-    if (trimmed) {
-      sendSetVideoUrl(trimmed)
-      setUrlInput('')
+    if (!trimmed) return
+    if (!PlayerFactory.detect(trimmed)) {
+      setUrlError('Неподдерживаемая платформа')
+      return
     }
+    setUrlError('')
+    sendSetVideoUrl(trimmed)
+    setUrlInput('')
   }
 
   return (
@@ -448,10 +453,11 @@ function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing }: V
           className="url-input"
           placeholder="https://rutube.ru/video/..."
           value={urlInput}
-          onChange={(e) => setUrlInput(e.target.value)}
+          onChange={(e) => { setUrlInput(e.target.value); setUrlError('') }}
         />
         <button type="submit" className="url-btn">Загрузить</button>
       </form>
+      {urlError && <span className="url-error">{urlError}</span>}
 
       {videoUrl ? (
         <div className="player-wrapper">
