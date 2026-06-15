@@ -38,6 +38,8 @@ export class PlaybackSync {
   private readonly getOffsetReady: () => boolean
   private adapter: IPlayerAdapter | null = null
   private adapterPositionMs: number | null = null
+  private suppressPlayEvent = false
+  private suppressPlayTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     send: SendFn,
@@ -91,6 +93,17 @@ export class PlaybackSync {
     }
     adapter.on('ended', onEnded)
 
+    // Если плеер начал играть без нашей команды (автолуп RuTube после окончания видео) —
+    // синхронизируем: отправляем requestPlay. Штатный запуск подавляется флагом 500мс.
+    const onAdapterPlay = () => {
+      if (this.adapter !== adapter) return
+      if (this.suppressPlayEvent) return
+      if (!this.state.isPlaying) {
+        this.requestPlay()
+      }
+    }
+    adapter.on('play', onAdapterPlay)
+
     // Кэшируем реальную позицию из плеера для UI-таймера (обходит задержку буферизации)
     const onTimeUpdate = (...args: unknown[]) => {
       if (this.adapter !== adapter) return
@@ -115,7 +128,7 @@ export class PlaybackSync {
   onPlayBroadcast(p: PlayBroadcastPayload): void {
     this.scheduleApply('Play', p.execute_at_ms, (localExecAt) => {
       this.state = applyPlay(this.state, localExecAt)
-      this.adapter?.play()
+      this.playAdapter()
     })
   }
 
@@ -167,7 +180,7 @@ export class PlaybackSync {
       // Seek к серверной позиции на execute_at — компенсирует drift
       // между первым seek (в setAdapter) и моментом старта.
       this.adapter?.seek(p.position_ms / 1000)
-      this.adapter?.play()
+      this.playAdapter()
     })
   }
 
@@ -282,9 +295,18 @@ export class PlaybackSync {
     this.pendingTimers.clear()
     this.listeners.clear()
     this.syncedListeners.clear()
+    if (this.suppressPlayTimer !== null) clearTimeout(this.suppressPlayTimer)
   }
 
   // --- Планирование применения команды ---
+
+  private playAdapter(): void {
+    if (!this.adapter) return
+    if (this.suppressPlayTimer !== null) clearTimeout(this.suppressPlayTimer)
+    this.suppressPlayEvent = true
+    this.suppressPlayTimer = setTimeout(() => { this.suppressPlayEvent = false }, 500)
+    this.adapter.play()
+  }
 
   private scheduleApply(
     cmdType: CommandType,
