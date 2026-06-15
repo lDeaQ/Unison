@@ -190,9 +190,26 @@ watchtogether/
 - Не делать аутентификацию через OAuth и сложные системы — простой nickname + session token.
 
 ## Текущий этап
-WebSocket-инфраструктура реализована: ConnectionManager, схемы сообщений, обработчик `/ws/{session_id}`.
-Фронт подключается, отображает список участников, поддерживает переподключение с exponential backoff.
-Следующий этап — NTP-синхронизация часов и команды Play/Pause/Seek.
+
+Реализовано всё ядро механизма синхронизации:
+
+- WebSocket-инфраструктура: ConnectionManager, схемы сообщений, обработчик `/ws/{session_id}`.
+- NTP-подобная синхронизация часов: ClockSync (медиана 8 измерений, trim 25% по RTT).
+- Команды Play/Pause/Seek/SetPlaybackRate/SetVideoUrl с execute_at-компенсацией (200 мс).
+- Персональная синхронизация при входе в playing-сессию: SeekReady / PersonalPlay.
+- Адаптеры плееров: RutubeAdapter (postMessage), VKVideoAdapter (VK SDK), PlayerFactory.
+- БД SQLite: sessions, users, events_log, chat_messages; REST API /api/*.
+- Чат, UI Unison (тёмная тема, JetBrains Mono).
+- FastAPI раздаёт собранный фронт на порту 8000.
+- **Система ролей creator / admin / participant** (последнее):
+  - Три роли: creator (управление видео + роли + закрытие), admin (управление видео), participant (просмотр).
+  - Автопередача creator при выходе — старейший admin, fallback на старейшего participant.
+  - Протокол: GrantAdmin, RevokeAdmin, CloseRoom → RoleChanged, RoomClosed.
+  - Проверка прав на сервере через manager.get_role() в момент команды.
+  - UI: иконки ролей (красная/жёлтая корона), кнопки управления ролями, overlay закрытия комнаты.
+- Юнит-тесты: 15 тестов anchor-формулы и state_store.
+
+**Следующий приоритет:** нагрузочный тест (30 клиентов, измерение рассинхрона ≤ 400 мс) — нужен для главы 4 диплома.
 
 ## Полезные команды
 
