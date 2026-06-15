@@ -333,7 +333,8 @@ function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync }: Pla
           <button
             className="rate-btn"
             onClick={() => setRateOpen((v) => !v)}
-            disabled={disabled}
+            disabled={disabled || platform === 'rutube'}
+            title={platform === 'rutube' ? 'RuTube не поддерживает изменение скорости' : undefined}
           >
             {state.playbackRate}x
           </button>
@@ -344,7 +345,7 @@ function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync }: Pla
                   key={r}
                   className={`rate-option${state.playbackRate === r ? ' active' : ''}`}
                   onClick={() => { setRate(r); setRateOpen(false) }}
-                  disabled={disabled}
+                  disabled={disabled || platform === 'rutube'}
                 >
                   {r}x
                 </button>
