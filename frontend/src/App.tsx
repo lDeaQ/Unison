@@ -6,7 +6,7 @@ import { usePlayback } from './playback/usePlayback'
 import type { PlaybackSync } from './playback/PlaybackSync'
 import { PlayerFactory } from './players/PlayerFactory'
 import type { IPlayerAdapter } from './players/IPlayerAdapter'
-import type { ChatMessageBroadcastPayload, ParticipantInfo } from './types/protocol'
+import type { ChatMessageBroadcastPayload, ParticipantInfo, Role } from './types/protocol'
 import './App.css'
 
 const SESSION_ID = 'demo'
@@ -76,20 +76,32 @@ function IconPause() {
   )
 }
 
-function IconCrown() {
+function IconCrown({ color }: { color: string }) {
   return (
     <svg width="13" height="11" viewBox="0 0 13 11" fill="none">
       <path
         d="M0.5 9.5h12M0.5 9.5L2 4L5 6.5L6.5 1L8 6.5L11 4L12.5 9.5H0.5z"
-        stroke="#f0b429"
+        stroke={color}
         strokeWidth="1.2"
         strokeLinejoin="round"
         strokeLinecap="round"
-        fill="#f0b429"
+        fill={color}
         fillOpacity="0.25"
       />
     </svg>
   )
+}
+
+function RoleBadge({ role }: { role: string }) {
+  if (role === 'creator') return <IconCrown color="#ef4444" />
+  if (role === 'admin') return <IconCrown color="#f0b429" />
+  return null
+}
+
+function roleLabel(role: string): string {
+  if (role === 'creator') return 'создатель'
+  if (role === 'admin') return 'администратор'
+  return 'участник'
 }
 
 function IconVolume() {
@@ -130,14 +142,6 @@ function IconChevronUp() {
   return (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
       <path d="M3 9.5l4.5-4 4.5 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconArrow() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-      <path d="M2 5.5h7M6.5 2.5l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -223,13 +227,31 @@ function ProgressBar({ positionMs, durationMs, onSeek, disabled }: ProgressBarPr
 interface ParticipantsPanelProps {
   participants: ParticipantInfo[]
   myUserId: string | null
+  myRole: Role | null
   open: boolean
   onToggle: () => void
+  sendGrantAdmin: (id: string) => void
+  sendRevokeAdmin: (id: string) => void
+  sendCloseRoom: () => void
 }
 
-function ParticipantsPanel({ participants, myUserId, open, onToggle }: ParticipantsPanelProps) {
-  const myRole = participants.find((p) => p.id === myUserId)?.role
-  const isOwner = myRole === 'owner'
+function ParticipantsPanel({
+  participants,
+  myUserId,
+  myRole,
+  open,
+  onToggle,
+  sendGrantAdmin,
+  sendRevokeAdmin,
+  sendCloseRoom,
+}: ParticipantsPanelProps) {
+  const isCreator = myRole === 'creator'
+
+  const handleCloseRoom = () => {
+    if (window.confirm('Закрыть комнату? Все участники будут отключены.')) {
+      sendCloseRoom()
+    }
+  }
 
   return (
     <aside className={`left-panel${open ? '' : ' collapsed'}`}>
@@ -243,37 +265,57 @@ function ParticipantsPanel({ participants, myUserId, open, onToggle }: Participa
       </div>
 
       {open && (
-        <ul className="participant-list">
-          {participants.length === 0 ? (
-            <li className="participant-empty">Нет участников</li>
-          ) : (
-            participants.map((p) => (
-              <li key={p.id} className="participant-item">
-                <span className="participant-icon">
-                  {p.role === 'owner' ? <IconCrown /> : <span className="participant-dot" />}
-                </span>
-                <span className="participant-info">
-                  <span className="participant-name">
-                    {p.nickname}
-                    {p.id === myUserId && <span className="you-tag"> (вы)</span>}
+        <>
+          <ul className="participant-list">
+            {participants.length === 0 ? (
+              <li className="participant-empty">Нет участников</li>
+            ) : (
+              participants.map((p) => (
+                <li key={p.id} className="participant-item">
+                  <span className="participant-icon">
+                    {p.role === 'participant'
+                      ? <span className="participant-dot" />
+                      : <RoleBadge role={p.role} />}
                   </span>
-                  <span className="participant-role">
-                    {p.role === 'owner' ? 'владелец' : 'участник'}
+                  <span className="participant-info">
+                    <span className="participant-name">
+                      {p.nickname}
+                      {p.id === myUserId && <span className="you-tag"> (вы)</span>}
+                    </span>
+                    <span className="participant-role">{roleLabel(p.role)}</span>
                   </span>
-                </span>
-                {isOwner && p.id !== myUserId && (
-                  <button
-                    className="icon-btn transfer-btn"
-                    title="Передать роль"
-                    onClick={() => console.log('transfer role to', p.id)}
-                  >
-                    <IconArrow />
-                  </button>
-                )}
-              </li>
-            ))
+                  {isCreator && p.id !== myUserId && (
+                    p.role === 'admin' ? (
+                      <button
+                        className="role-action-btn revoke"
+                        title="Снять роль admin"
+                        onClick={() => sendRevokeAdmin(p.id)}
+                      >
+                        − admin
+                      </button>
+                    ) : (
+                      <button
+                        className="role-action-btn"
+                        title="Назначить admin"
+                        onClick={() => sendGrantAdmin(p.id)}
+                      >
+                        + admin
+                      </button>
+                    )
+                  )}
+                </li>
+              ))
+            )}
+          </ul>
+
+          {isCreator && (
+            <div className="panel-footer">
+              <button className="close-room-btn" onClick={handleCloseRoom}>
+                Закрыть комнату
+              </button>
+            </div>
           )}
-        </ul>
+        </>
       )}
     </aside>
   )
@@ -402,9 +444,10 @@ interface VideoPanelProps {
   sendSetVideoUrl: (url: string) => void
   onAdapterChange?: (adapter: IPlayerAdapter | null) => void
   isSyncing: boolean
+  isController: boolean
 }
 
-function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing }: VideoPanelProps) {
+function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing, isController }: VideoPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<IPlayerAdapter | null>(null)
   const onAdapterChangeRef = useRef(onAdapterChange)
@@ -453,9 +496,10 @@ function VideoPanel({ videoUrl, sendSetVideoUrl, onAdapterChange, isSyncing }: V
           className="url-input"
           placeholder="https://rutube.ru/video/..."
           value={urlInput}
+          disabled={!isController}
           onChange={(e) => { setUrlInput(e.target.value); setUrlError('') }}
         />
-        <button type="submit" className="url-btn">Загрузить</button>
+        <button type="submit" className="url-btn" disabled={!isController}>Загрузить</button>
       </form>
       {urlError && <span className="url-error">{urlError}</span>}
 
@@ -570,12 +614,14 @@ function ChatPanel({ messages, sendChat, myUserId, disabled, open, onToggle }: C
 
 function RoomScreen({ nickname, onLeave }: { nickname: string; onLeave: () => void }) {
   const {
-    status, participants, myUserId, videoUrl,
-    reconnect, sendSetVideoUrl, clockSync, playbackSync,
-    messages, sendChat, isSyncing,
+    status, participants, myUserId, myRole, videoUrl, roomClosed,
+    reconnect, sendSetVideoUrl, sendGrantAdmin, sendRevokeAdmin, sendCloseRoom,
+    clockSync, playbackSync, messages, sendChat, isSyncing,
   } = useWebSocket(SESSION_ID, nickname)
   const sync = useClockSync(clockSync)
   const isConnected = status === 'connected'
+  const isController = myRole === 'creator' || myRole === 'admin'
+  const controlsDisabled = !isConnected || playbackSync === null || !isController
 
   const [leftOpen, setLeftOpen] = useState(true)
   const [chatOpen, setChatOpen] = useState(true)
@@ -615,8 +661,12 @@ function RoomScreen({ nickname, onLeave }: { nickname: string; onLeave: () => vo
         <ParticipantsPanel
           participants={participants}
           myUserId={myUserId}
+          myRole={myRole}
           open={leftOpen}
           onToggle={() => setLeftOpen((v) => !v)}
+          sendGrantAdmin={sendGrantAdmin}
+          sendRevokeAdmin={sendRevokeAdmin}
+          sendCloseRoom={sendCloseRoom}
         />
 
         <main className="center-col">
@@ -625,10 +675,11 @@ function RoomScreen({ nickname, onLeave }: { nickname: string; onLeave: () => vo
             sendSetVideoUrl={sendSetVideoUrl}
             onAdapterChange={handleAdapterChange}
             isSyncing={isSyncing}
+            isController={isController}
           />
           <PlayerControls
             sync={playbackSync}
-            disabled={!isConnected || playbackSync === null}
+            disabled={controlsDisabled}
             videoUrl={videoUrl}
             durationMs={durationMs}
             clockSync={sync}
@@ -643,6 +694,15 @@ function RoomScreen({ nickname, onLeave }: { nickname: string; onLeave: () => vo
           />
         </main>
       </div>
+
+      {roomClosed && (
+        <div className="room-closed-overlay">
+          <div className="room-closed-card">
+            <p className="room-closed-title">Комната закрыта создателем</p>
+            <button className="join-btn" onClick={onLeave}>На главную</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

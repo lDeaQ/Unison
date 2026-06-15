@@ -217,6 +217,70 @@ ul     { list-style: none; }
 .participant-item:hover .transfer-btn { opacity: 1; }
 .transfer-btn:hover { color: #f0b429; }
 
+.role-action-btn {
+  flex-shrink: 0;
+  opacity: 0;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: #9a9a9a;
+  background: transparent;
+  border: 1px solid #3a3a3a;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.participant-item:hover .role-action-btn { opacity: 1; }
+.role-action-btn:hover { color: #f0b429; border-color: #f0b429; }
+.role-action-btn.revoke:hover { color: #ef4444; border-color: #ef4444; }
+
+.panel-footer {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-top: 1px solid #2e2e2e;
+}
+
+.close-room-btn {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  transition: background 0.15s, color 0.15s;
+}
+.close-room-btn:hover { background: #ef4444; color: #fff; }
+
+/* ─── RoomClosed overlay ─── */
+
+.room-closed-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.room-closed-card {
+  background: #242424;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 32px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  text-align: center;
+}
+
+.room-closed-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
 /* ─── Center column ─── */
 
 .center-col {
