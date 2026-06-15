@@ -48,10 +48,14 @@ export function usePlayback(sync: PlaybackSync | null): {
   }
 
   const s = sync.getState()
+  // Приоритет — реальная позиция из плеера (обходит задержку буферизации).
+  // Fallback на math-модель: когда адаптер ещё не дал ни одного timeupdate.
+  const adapterPos = sync.getAdapterPositionMs()
+  const positionMs = adapterPos !== null ? adapterPos : sync.currentPositionMs()
   return {
     state: {
       isPlaying: s.isPlaying,
-      positionMs: sync.currentPositionMs(),
+      positionMs,
       playbackRate: s.playbackRate,
       videoUrl: s.videoUrl,
     },

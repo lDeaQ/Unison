@@ -37,6 +37,7 @@ export class PlaybackSync {
   private readonly getOffset: () => number
   private readonly getOffsetReady: () => boolean
   private adapter: IPlayerAdapter | null = null
+  private adapterPositionMs: number | null = null
 
   constructor(
     send: SendFn,
@@ -52,6 +53,7 @@ export class PlaybackSync {
 
   setAdapter(adapter: IPlayerAdapter | null): void {
     this.adapter = adapter
+    this.adapterPositionMs = null
     if (!adapter) return
 
     const applyState = () => {
@@ -88,6 +90,14 @@ export class PlaybackSync {
       this.requestPause()
     }
     adapter.on('ended', onEnded)
+
+    // Кэшируем реальную позицию из плеера для UI-таймера (обходит задержку буферизации)
+    const onTimeUpdate = (...args: unknown[]) => {
+      if (this.adapter !== adapter) return
+      const sec = args[0]
+      this.adapterPositionMs = typeof sec === 'number' && sec > 0 ? sec * 1000 : null
+    }
+    adapter.on('timeupdate', onTimeUpdate)
 
     if (adapter.isReady()) {
       applyState()
@@ -259,6 +269,12 @@ export class PlaybackSync {
 
   currentPositionMs(): number {
     return computeCurrentPositionMs(this.state, performance.now())
+  }
+
+  // Реальная позиция плеера из последнего timeupdate; null если адаптер ещё не дал данных.
+  // Используется только для UI-таймера — math-модель остаётся авторитетной для execute_at.
+  getAdapterPositionMs(): number | null {
+    return this.adapterPositionMs
   }
 
   destroy(): void {
