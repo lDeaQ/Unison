@@ -88,7 +88,7 @@ export class RutubeAdapter extends BasePlayerAdapter {
     }
     if (this.justBecameReady) {
       this.justBecameReady = false
-      await new Promise<void>((r) => setTimeout(r, 500))
+      await new Promise<void>((r) => setTimeout(r, 1000))
     }
     const time = TIME_UNIT_MS ? seconds * 1000 : seconds
     this.sendToPlayer({ type: 'player:setCurrentTime', data: { time } })

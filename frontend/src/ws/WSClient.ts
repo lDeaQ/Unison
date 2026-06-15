@@ -19,6 +19,7 @@ export class WSClient {
   private sessionId: string | null = null
   private nickname: string | null = null
   private deliberateClose = false
+  private lastErrorCode: string | null = null
   private listeners: Map<string, Set<(...args: unknown[]) => void>> = new Map()
 
   connect(sessionId: string, nickname: string): void {
@@ -60,7 +61,7 @@ export class WSClient {
   }
 
   private openConnection(): void {
-    // 'connecting' устанавливается ДО создания WebSocket
+    this.lastErrorCode = null
     this.setStatus('connecting')
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -97,15 +98,25 @@ export class WSClient {
       console.error('[WSClient] Ошибка разбора JSON:', event.data)
       return
     }
+    if (msg.type === 'Error') {
+      this.lastErrorCode = (msg.payload as { code: string }).code
+    }
     this.emit(`message:${msg.type}`, msg.payload)
   }
 
   private handleClose(event: CloseEvent): void {
+    const errorCode = this.lastErrorCode
+    this.lastErrorCode = null
+
     if (this.deliberateClose || event.code === 1000) {
       this.setStatus('disconnected')
       return
     }
-    // Аномальное закрытие — запускаем переподключение
+    if (errorCode === 'NICKNAME_TAKEN') {
+      this.setStatus('failed')
+      this.emit('nickname_taken')
+      return
+    }
     this.scheduleReconnect()
   }
 

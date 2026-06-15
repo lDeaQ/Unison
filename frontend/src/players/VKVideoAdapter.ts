@@ -97,6 +97,7 @@ export class VKVideoAdapter extends BasePlayerAdapter {
     this.player.on('resumed', () => this.emit('play'))
     this.player.on('paused', () => this.emit('pause'))
     this.player.on('timeupdate', (data) => {
+      console.log('[VKVideoAdapter] timeupdate raw data:', data)
       const d = data as { time?: number; duration?: number } | undefined
       if (typeof d?.time === 'number') {
         this.currentTimeSec = d.time
@@ -104,6 +105,14 @@ export class VKVideoAdapter extends BasePlayerAdapter {
       }
       if (typeof d?.duration === 'number' && d.duration > 0) {
         this.durationSec = d.duration
+      }
+    })
+    // durationchange — может существовать в некоторых версиях VK VideoPlayer API
+    this.player.on('durationchange', (data) => {
+      const d = data as { duration?: number } | undefined
+      if (typeof d?.duration === 'number' && d.duration > 0) {
+        this.durationSec = d.duration
+        console.log('[VKVideoAdapter] durationchange:', d.duration, 'сек')
       }
     })
     this.player.on('error', (data) => {
@@ -158,6 +167,10 @@ export class VKVideoAdapter extends BasePlayerAdapter {
 
   async getDuration(): Promise<number> {
     return this.durationSec
+  }
+
+  getDurationMs(): number {
+    return this.durationSec * 1000
   }
 
   isReady(): boolean {

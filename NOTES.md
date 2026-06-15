@@ -406,3 +406,46 @@ const base = import.meta.env.VITE_WS_URL ?? `${wsProtocol}//${wsHost}${wsPort}`
 1. **Нагрузочный тест** — 30 клиентов, рассинхрон ≤ 400 мс (ТЗ). Критично для главы 4 диплома.
 2. Убрать debug-логи из `PlaybackSync` и `useWebSocket` перед демонстрацией.
 3. Глава диплома: архитектура адаптеров, протокол синхронизации.
+
+---
+
+## Сессия 12 — UI-полировка + NICKNAME_TAKEN + VK duration — 15.06.2026
+
+### Что сделано
+
+#### 1. Иконка громкости удалена
+
+`IconVolume` и `<span className="volume-icon">` убраны из `PlayerControls` (`App.tsx`). Иконка была декоративной, управления громкостью нет — лишний элемент вводил в заблуждение.
+
+#### 2. Обработка NICKNAME_TAKEN на экране входа
+
+Было: сервер шлёт `ErrorMessage {code: NICKNAME_TAKEN}` и закрывает соединение → фронт делал 8 попыток переподключения (~100 сек) → статус `failed`. Бесполезно для пользователя.
+
+Стало:
+- **`WSClient.ts`**: при получении `Error` сохраняет `lastErrorCode`; в `handleClose`, если `lastErrorCode === 'NICKNAME_TAKEN'`, не вызывает `scheduleReconnect()` — устанавливает `failed` и эмитирует событие `nickname_taken`. `lastErrorCode` сбрасывается при каждом `openConnection()`.
+- **`useWebSocket.ts`**: новый флаг `nicknameTaken: boolean` в стейте и возврате хука; подписка на `client.on('nickname_taken', ...)`.
+- **`App.tsx`**: `RoomScreen` получает `onNicknameTaken` колбэк — при `nicknameTaken === true` через `useEffect` вызывает его; `App` переходит обратно на `JoinScreen` с `nicknameTaken=true`. `JoinScreen` через `useEffect([nicknameTaken])` ставит `error = 'Этот никнейм уже занят, выберите другой'`.
+
+#### 3. VK Video — полоска seek разблокирована
+
+Причина: `App.tsx` вызывает `adapter.getDurationMs()` для обновления `durationMs` в стейте, но `VKVideoAdapter` не имел этого метода (только `getDuration()` в интерфейсе). Метод был только у `RutubeAdapter`. Результат — всегда 0, полоска заблокирована.
+
+Фикс:
+- Добавлен `getDurationMs(): number { return this.durationSec * 1000 }` в `VKVideoAdapter`.
+- Добавлен `console.log('[VKVideoAdapter] timeupdate raw data:', data)` — для проверки, что именно приходит от VK API в `data` (приходит ли `duration` в timeupdate вообще).
+- Добавлена подписка на `durationchange` — на случай если VK шлёт длительность отдельным событием.
+- Полоска в `ProgressBar` уже разблокируется автоматически когда `durationMs > 0` (логика была верной, не хватало данных).
+
+### Файлы изменены
+
+- `frontend/src/App.tsx` — задачи 1, 2
+- `frontend/src/ws/WSClient.ts` — задача 2
+- `frontend/src/ws/useWebSocket.ts` — задача 2
+- `frontend/src/players/VKVideoAdapter.ts` — задача 3
+- `frontend/src/players/RutubeAdapter.ts` — незначительный рефакторинг (задержка в seek)
+
+### Что дальше
+
+1. **Нагрузочный тест** — 30 клиентов, измерение рассинхрона ≤ 400 мс. Критично для главы 4.
+2. Проверить VK Video в браузере: посмотреть в консоли что приходит в timeupdate, убедиться что полоска работает.
+3. Убрать `console.log` из `VKVideoAdapter` после проверки.

@@ -104,16 +104,6 @@ function roleLabel(role: string): string {
   return 'участник'
 }
 
-function IconVolume() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" opacity="0.4">
-      <path d="M2 5.5h2.5L8 2v12L4.5 10.5H2V5.5z" />
-      <path d="M10.5 4.5c1.5 1 1.5 6 0 7" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-      <path d="M12.5 2.5c2.5 2 2.5 9 0 11" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function IconChevronLeft() {
   return (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -369,8 +359,6 @@ function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync }: Pla
 
         <span className="time-label muted">{formatMMSS(durationMs)}</span>
 
-        <span className="volume-icon"><IconVolume /></span>
-
         <div className="rate-selector">
           <button
             className="rate-btn"
@@ -612,12 +600,24 @@ function ChatPanel({ messages, sendChat, myUserId, disabled, open, onToggle }: C
 
 // --- Экран комнаты ---
 
-function RoomScreen({ nickname, onLeave }: { nickname: string; onLeave: () => void }) {
+function RoomScreen({
+  nickname,
+  onLeave,
+  onNicknameTaken,
+}: {
+  nickname: string
+  onLeave: () => void
+  onNicknameTaken: () => void
+}) {
   const {
-    status, participants, myUserId, myRole, videoUrl, roomClosed,
+    status, participants, myUserId, myRole, videoUrl, roomClosed, nicknameTaken,
     reconnect, sendSetVideoUrl, sendGrantAdmin, sendRevokeAdmin, sendCloseRoom,
     clockSync, playbackSync, messages, sendChat, isSyncing,
   } = useWebSocket(SESSION_ID, nickname)
+
+  useEffect(() => {
+    if (nicknameTaken) onNicknameTaken()
+  }, [nicknameTaken, onNicknameTaken])
   const sync = useClockSync(clockSync)
   const isConnected = status === 'connected'
   const isController = myRole === 'creator' || myRole === 'admin'
@@ -709,9 +709,19 @@ function RoomScreen({ nickname, onLeave }: { nickname: string; onLeave: () => vo
 
 // --- Экран входа ---
 
-function JoinScreen({ onJoin }: { onJoin: (nickname: string) => void }) {
+function JoinScreen({
+  onJoin,
+  nicknameTaken,
+}: {
+  onJoin: (nickname: string) => void
+  nicknameTaken: boolean
+}) {
   const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (nicknameTaken) setError('Этот никнейм уже занят, выберите другой')
+  }, [nicknameTaken])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -749,9 +759,21 @@ function JoinScreen({ onJoin }: { onJoin: (nickname: string) => void }) {
 export default function App() {
   const [joined, setJoined] = useState(false)
   const [nickname, setNickname] = useState('')
+  const [nicknameTaken, setNicknameTaken] = useState(false)
 
   if (joined) {
-    return <RoomScreen nickname={nickname} onLeave={() => setJoined(false)} />
+    return (
+      <RoomScreen
+        nickname={nickname}
+        onLeave={() => { setNicknameTaken(false); setJoined(false) }}
+        onNicknameTaken={() => { setNicknameTaken(true); setJoined(false) }}
+      />
+    )
   }
-  return <JoinScreen onJoin={(nick) => { setNickname(nick); setJoined(true) }} />
+  return (
+    <JoinScreen
+      onJoin={(nick) => { setNickname(nick); setNicknameTaken(false); setJoined(true) }}
+      nicknameTaken={nicknameTaken}
+    />
+  )
 }

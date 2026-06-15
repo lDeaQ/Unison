@@ -25,6 +25,7 @@ export interface UseWebSocketResult {
   myRole: Role | null
   videoUrl: string
   roomClosed: boolean
+  nicknameTaken: boolean
   reconnect: () => void
   sendSetVideoUrl: (url: string) => void
   sendGrantAdmin: (targetUserId: string) => void
@@ -48,6 +49,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
   const [playbackSync, setPlaybackSync] = useState<PlaybackSync | null>(null)
   const [messages, setMessages] = useState<ChatMessageBroadcastPayload[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
+  const [nicknameTaken, setNicknameTaken] = useState(false)
   const clientRef = useRef<WSClient | null>(null)
   // Ref для доступа к myUserId внутри WS-колбэков без stale closure
   const myUserIdRef = useRef<string | null>(null)
@@ -162,6 +164,10 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       console.warn('[server Error]', err.code, err.message)
     })
 
+    client.on('nickname_taken', () => {
+      setNicknameTaken(true)
+    })
+
     client.on('max_retries_exceeded', () => {
       setStatus('failed')
     })
@@ -209,6 +215,7 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
     myRole,
     videoUrl,
     roomClosed,
+    nicknameTaken,
     reconnect,
     sendSetVideoUrl,
     sendGrantAdmin,
