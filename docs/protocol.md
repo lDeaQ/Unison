@@ -183,6 +183,60 @@ NTP-подобный запрос для измерения смещения ч�
 
 ---
 
+### `GrantAdmin`
+Creator назначает участника admin. Доступно только роли `creator`.
+
+```json
+{
+  "type": "GrantAdmin",
+  "payload": {
+    "target_user_id": "u2"
+  }
+}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `target_user_id` | `string` | UUID участника, которому назначается роль admin |
+
+Ошибки: `FORBIDDEN` (если отправитель не creator; или target уже является creator), `USER_NOT_FOUND` (target отсутствует в сессии).
+
+---
+
+### `RevokeAdmin`
+Creator снимает роль admin. Доступно только роли `creator`.
+
+```json
+{
+  "type": "RevokeAdmin",
+  "payload": {
+    "target_user_id": "u2"
+  }
+}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `target_user_id` | `string` | UUID участника, у которого снимается роль admin |
+
+Ошибки: `FORBIDDEN` (если отправитель не creator; или target не является admin), `USER_NOT_FOUND`.
+
+---
+
+### `CloseRoom`
+Creator закрывает комнату. Сервер рассылает `RoomClosed` всем и разрывает соединения. Доступно только роли `creator`.
+
+```json
+{
+  "type": "CloseRoom",
+  "payload": {}
+}
+```
+
+Ошибки: `FORBIDDEN` (если отправитель не creator).
+
+---
+
 ## Сервер → Клиент
 
 ### `Welcome`
@@ -431,6 +485,8 @@ rtt    = (t3 − client_send_ms) − (server_send_ms − server_receive_ms)
 | `HELLO_REQUIRED` | да (4001) | Первое сообщение не было `Hello` или таймаут 30 сек |
 | `INVALID_MESSAGE` | нет | Тело сообщения не прошло валидацию Pydantic |
 | `NICKNAME_TAKEN` | да (4003) | Никнейм уже занят в этой комнате |
+| `FORBIDDEN` | нет | Операция требует роли, которой у отправителя нет |
+| `USER_NOT_FOUND` | нет | `target_user_id` не найден в текущей сессии |
 
 ---
 
@@ -463,6 +519,44 @@ rtt    = (t3 − client_send_ms) − (server_send_ms − server_receive_ms)
   }
 }
 ```
+
+---
+
+### `RoleChanged`
+Широковещательно при любом изменении роли участника, включая автоматическую передачу creator при его выходе.
+
+```json
+{
+  "type": "RoleChanged",
+  "payload": {
+    "user_id": "u2",
+    "new_role": "admin",
+    "reason": "granted"
+  }
+}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `user_id` | `string` | UUID участника, чья роль изменилась |
+| `new_role` | `string` | Новая роль: `"creator"` \| `"admin"` \| `"participant"` |
+| `reason` | `string` | Причина: `"granted"` \| `"revoked"` \| `"creator_transferred"` |
+
+При получении клиент обновляет роль участника в своём списке. Если `user_id` совпадает с `your_user_id` из `Welcome` — обновляет и собственную роль.
+
+---
+
+### `RoomClosed`
+Рассылается всем участникам перед разрывом всех соединений. Инициируется командой `CloseRoom` от creator.
+
+```json
+{
+  "type": "RoomClosed",
+  "payload": {}
+}
+```
+
+При получении клиент показывает уведомление «Комната закрыта создателем» и возвращает пользователя на экран входа.
 
 ---
 

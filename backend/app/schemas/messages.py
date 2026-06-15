@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 class ParticipantInfo(BaseModel):
     id: str
     nickname: str
-    role: str  # "owner" | "participant"
+    role: str  # "creator" | "admin" | "participant"
 
 
 # --- Входящие: клиент → сервер ---
@@ -74,7 +74,7 @@ class ParticipantLeftMessage(BaseModel):
 
 
 class ErrorPayload(BaseModel):
-    code: str     # "HELLO_REQUIRED" | "INVALID_MESSAGE" | "NICKNAME_TAKEN"
+    code: str     # "HELLO_REQUIRED" | "INVALID_MESSAGE" | "NICKNAME_TAKEN" | "FORBIDDEN" | "USER_NOT_FOUND"
     message: str  # человекочитаемое описание
 
 
@@ -281,3 +281,58 @@ class ChatMessageBroadcastPayload(BaseModel):
 class ChatMessageBroadcastMessage(BaseModel):
     type: Literal["ChatMessage"] = "ChatMessage"
     payload: ChatMessageBroadcastPayload
+
+
+# ---------------------------------------------------------------------------
+# Управление ролями — входящие (client → server)
+# ---------------------------------------------------------------------------
+
+class GrantAdminPayload(BaseModel):
+    target_user_id: str
+
+
+class GrantAdminMessage(BaseModel):
+    type: Literal["GrantAdmin"]
+    payload: GrantAdminPayload
+
+
+class RevokeAdminPayload(BaseModel):
+    target_user_id: str
+
+
+class RevokeAdminMessage(BaseModel):
+    type: Literal["RevokeAdmin"]
+    payload: RevokeAdminPayload
+
+
+class CloseRoomPayload(BaseModel):
+    pass
+
+
+class CloseRoomMessage(BaseModel):
+    type: Literal["CloseRoom"]
+    payload: CloseRoomPayload
+
+
+# ---------------------------------------------------------------------------
+# Управление ролями — исходящие (server → all clients)
+# ---------------------------------------------------------------------------
+
+class RoleChangedPayload(BaseModel):
+    user_id: str
+    new_role: str   # "creator" | "admin" | "participant"
+    reason: str     # "granted" | "revoked" | "creator_transferred"
+
+
+class RoleChangedMessage(BaseModel):
+    type: Literal["RoleChanged"] = "RoleChanged"
+    payload: RoleChangedPayload
+
+
+class RoomClosedPayload(BaseModel):
+    pass
+
+
+class RoomClosedMessage(BaseModel):
+    type: Literal["RoomClosed"] = "RoomClosed"
+    payload: RoomClosedPayload
