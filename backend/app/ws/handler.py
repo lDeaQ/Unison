@@ -12,8 +12,10 @@ from app.schemas.messages import (
     ChatMessageBroadcastMessage,
     ChatMessageBroadcastPayload,
     ChatMessageRequestMessage,
+    CloseRoomMessage,
     ErrorMessage,
     ErrorPayload,
+    GrantAdminMessage,
     HelloMessage,
     ParticipantJoinedMessage,
     ParticipantJoinedPayload,
@@ -27,6 +29,11 @@ from app.schemas.messages import (
     PlayBroadcastMessage,
     PlayBroadcastPayload,
     PlayRequestMessage,
+    RevokeAdminMessage,
+    RoleChangedMessage,
+    RoleChangedPayload,
+    RoomClosedMessage,
+    RoomClosedPayload,
     SeekBroadcastMessage,
     SeekBroadcastPayload,
     SeekRequestMessage,
@@ -72,6 +79,11 @@ _PERSONAL_PLAY_BUFFER_MS = 2000
 
 def _make_error(code: str, message: str) -> str:
     return ErrorMessage(payload=ErrorPayload(code=code, message=message)).model_dump_json()
+
+
+def _can_control(role: str) -> bool:
+    """Creator и admin могут управлять воспроизведением."""
+    return role in ("creator", "admin")
 
 
 @router.websocket("/ws/{session_id}")
@@ -127,7 +139,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         return
 
     log_extra = {"session_id": session_id, "user_id": user_id}
-    logger.info("Hello от '%s'", nickname, extra=log_extra)
+    logger.info("Hello от '%s' (роль: %s)", nickname, role, extra=log_extra)
 
     try:
         # 4. Welcome только этому клиенту — с актуальным состоянием сессии
@@ -171,15 +183,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         )
 
         # 6. PersonalPlay — только если сессия воспроизводится в момент входа.
-        #    Клиент сделает seek к target_position, дождётся буферизации и сообщит
-        #    SeekReady (мы его просто логируем — PersonalPlay уже отправлен здесь).
         if session_state.is_playing:
             personal_now = server_now_ms()
-            # execute_at даёт клиенту EXECUTE_AT_DELAY_MS + _PERSONAL_PLAY_BUFFER_MS
-            # миллисекунд до старта — стандартная задержка + время на буферизацию.
             personal_execute_at = personal_now + EXECUTE_AT_DELAY_MS + _PERSONAL_PLAY_BUFFER_MS
-            # Позиция вычисляется НА МОМЕНТ execute_at: клиент стартует именно в ту
-            # точку, где будут остальные участники в момент personal_execute_at.
             target_position_ms = compute_current_position_ms(session_state, personal_execute_at)
             personal_play = PersonalPlayMessage(
                 payload=PersonalPlayPayload(
@@ -203,10 +209,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         # 7. Основной цикл — получаем и обрабатываем входящие сообщения
         while True:
             raw = await websocket.receive_text()
-            # t1_candidate фиксируется как можно раньше — до JSON-разбора и валидации
-            # Pydantic. Используется только если сообщение окажется TimeSyncRequest;
-            # на остальных типах значение просто отбрасывается. Делаем так, чтобы
-            # не включать в t1 время на сериализацию/валидацию (десятки–сотни мкс).
+            # t1_candidate фиксируется как можно раньше — до JSON-разбора и валидации.
             t1_candidate = server_now_ms()
             try:
                 parsed = json.loads(raw)
@@ -219,8 +222,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                 try:
                     req = TimeSyncRequestMessage.model_validate(parsed)
                 except ValidationError:
-                    # Не закрываем соединение из-за одной кривой метки —
-                    # шлём Error и продолжаем работать.
                     await websocket.send_text(
                         _make_error(
                             "INVALID_MESSAGE",
@@ -229,8 +230,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     )
                     continue
 
-                # t2 фиксируется в самый последний момент — прямо перед send_text,
-                # чтобы в server_send_ms попала минимально возможная задержка.
                 t2 = server_now_ms()
                 response = TimeSyncResponseMessage(
                     payload=TimeSyncResponsePayload(
@@ -253,6 +252,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                             "INVALID_MESSAGE",
                             "Play: ожидается payload.position_ms (int, ≥0)",
                         )
+                    )
+                    continue
+
+                # Проверяем роль в момент команды — не при подключении,
+                # т.к. роль могла смениться (promote/demote) за время сессии.
+                if not _can_control(manager.get_role(session_id, user_id) or ""):
+                    await websocket.send_text(
+                        _make_error("FORBIDDEN", "Недостаточно прав: управление видео доступно creator и admin")
                     )
                     continue
 
@@ -304,6 +311,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     )
                     continue
 
+                if not _can_control(manager.get_role(session_id, user_id) or ""):
+                    await websocket.send_text(
+                        _make_error("FORBIDDEN", "Недостаточно прав: управление видео доступно creator и admin")
+                    )
+                    continue
+
                 server_now = server_now_ms()
                 execute_at = server_now + EXECUTE_AT_DELAY_MS
                 old_state = state_store.get_or_create(session_id)
@@ -352,6 +365,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     )
                     continue
 
+                if not _can_control(manager.get_role(session_id, user_id) or ""):
+                    await websocket.send_text(
+                        _make_error("FORBIDDEN", "Недостаточно прав: управление видео доступно creator и admin")
+                    )
+                    continue
+
                 server_now = server_now_ms()
                 execute_at = server_now + EXECUTE_AT_DELAY_MS
                 old_state = state_store.get_or_create(session_id)
@@ -384,6 +403,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                             "INVALID_MESSAGE",
                             f"SetPlaybackRate: rate должен быть одним из {sorted({0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0})}",
                         )
+                    )
+                    continue
+
+                if not _can_control(manager.get_role(session_id, user_id) or ""):
+                    await websocket.send_text(
+                        _make_error("FORBIDDEN", "Недостаточно прав: управление видео доступно creator и admin")
                     )
                     continue
 
@@ -425,6 +450,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                             "INVALID_MESSAGE",
                             "SetVideoUrl: ожидается payload.video_url (string, max 2048 символов)",
                         )
+                    )
+                    continue
+
+                if not _can_control(manager.get_role(session_id, user_id) or ""):
+                    await websocket.send_text(
+                        _make_error("FORBIDDEN", "Недостаточно прав: управление видео доступно creator и admin")
                     )
                     continue
 
@@ -482,13 +513,92 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             if msg_type == "SeekReady":
-                # PersonalPlay уже отправлен при входе в сессию — здесь только лог.
-                # Валидация схемы не нужна: payload пустой, игнорируем содержимое.
+                # PersonalPlay уже отправлен при входе — здесь только лог.
                 server_now = server_now_ms()
                 await log_command(
                     session_id, user_id, "SeekReady", server_now, payload={}
                 )
                 logger.info("SeekReady получен (клиент готов к PersonalPlay)", extra=log_extra)
+                continue
+
+            if msg_type == "GrantAdmin":
+                try:
+                    req = GrantAdminMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "GrantAdmin: ожидается payload.target_user_id (string)",
+                        )
+                    )
+                    continue
+
+                error = manager.grant_admin(session_id, user_id, req.payload.target_user_id)
+                if error is not None:
+                    code, msg = error
+                    await websocket.send_text(_make_error(code, msg))
+                    continue
+
+                role_msg = RoleChangedMessage(
+                    payload=RoleChangedPayload(
+                        user_id=req.payload.target_user_id,
+                        new_role="admin",
+                        reason="granted",
+                    )
+                )
+                await manager.broadcast(session_id, role_msg.model_dump_json())
+                logger.info(
+                    "GrantAdmin: %s → admin", req.payload.target_user_id, extra=log_extra
+                )
+                continue
+
+            if msg_type == "RevokeAdmin":
+                try:
+                    req = RevokeAdminMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "RevokeAdmin: ожидается payload.target_user_id (string)",
+                        )
+                    )
+                    continue
+
+                error = manager.revoke_admin(session_id, user_id, req.payload.target_user_id)
+                if error is not None:
+                    code, msg = error
+                    await websocket.send_text(_make_error(code, msg))
+                    continue
+
+                role_msg = RoleChangedMessage(
+                    payload=RoleChangedPayload(
+                        user_id=req.payload.target_user_id,
+                        new_role="participant",
+                        reason="revoked",
+                    )
+                )
+                await manager.broadcast(session_id, role_msg.model_dump_json())
+                logger.info(
+                    "RevokeAdmin: %s → participant", req.payload.target_user_id, extra=log_extra
+                )
+                continue
+
+            if msg_type == "CloseRoom":
+                # CloseRoom не валидируется по схеме — payload пустой.
+                current_role = manager.get_role(session_id, user_id)
+                if current_role != "creator":
+                    await websocket.send_text(
+                        _make_error("FORBIDDEN", "Только creator может закрыть комнату")
+                    )
+                    continue
+
+                # Рассылаем RoomClosed всем до разрыва соединений
+                room_closed_msg = RoomClosedMessage(payload=RoomClosedPayload())
+                await manager.broadcast(session_id, room_closed_msg.model_dump_json())
+                logger.info("CloseRoom: рассылка RoomClosed и закрытие сессии", extra=log_extra)
+                # close_all удаляет сессию из памяти и закрывает все WS
+                await manager.close_all(session_id)
+                # Наш WS тоже закрыт — следующий receive_text() кинет WebSocketDisconnect
                 continue
 
             logger.warning(
@@ -498,11 +608,38 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         logger.info("Участник отключился: '%s'", nickname, extra=log_extra)
     finally:
-        # Логируем Leave в БД до очистки менеджера
         await log_leave(session_id, user_id)
-        # Гарантированная очистка при любом завершении соединения
+
+        # Читаем роль ДО disconnect — после неё участник уже удалён из сессии
+        departing = manager.get_participant(session_id, user_id)
+        departing_role = departing.role if departing is not None else None
+
         participant = manager.disconnect(session_id, user_id)
+
         if participant and manager.session_has_members(session_id):
+            # Если ушёл creator — автоматически передаём роль
+            if departing_role == "creator":
+                new_creator_id = manager.transfer_creator(session_id)
+                if new_creator_id:
+                    role_msg = RoleChangedMessage(
+                        payload=RoleChangedPayload(
+                            user_id=new_creator_id,
+                            new_role="creator",
+                            reason="creator_transferred",
+                        )
+                    )
+                    try:
+                        await manager.broadcast(session_id, role_msg.model_dump_json())
+                        logger.info(
+                            "Роль creator передана участнику %s", new_creator_id,
+                            extra=log_extra,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Ошибка при рассылке RoleChanged (creator_transferred)",
+                            extra=log_extra,
+                        )
+
             left_msg = ParticipantLeftMessage(
                 payload=ParticipantLeftPayload(id=user_id, nickname=nickname)
             )
