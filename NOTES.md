@@ -449,3 +449,38 @@ const base = import.meta.env.VITE_WS_URL ?? `${wsProtocol}//${wsHost}${wsPort}`
 1. **Нагрузочный тест** — 30 клиентов, измерение рассинхрона ≤ 400 мс. Критично для главы 4.
 2. Проверить VK Video в браузере: посмотреть в консоли что приходит в timeupdate, убедиться что полоска работает.
 3. Убрать `console.log` из `VKVideoAdapter` после проверки.
+
+---
+
+## Сессия 13 — кнопки ручной синхронизации — 17.06.2026
+
+### Что сделано
+
+Две кнопки синхронизации в `PlayerControls` (`App.tsx`), расположены рядом под прогресс-баром.
+
+#### «Синхронизировать всех на меня»
+
+- Видна только **creator** и **admin**.
+- При нажатии: async-вызов `adapter.getCurrentTime()` — реальная позиция плеера в секундах, умножается на 1000. Fallback на `sync.currentPositionMs()` (math-модель) если адаптер не готов (`isReady() === false`) или вернул 0. Fallback на `state.positionMs` если `sync` недоступен.
+- Вызывает `seek(positionMs)` → `sync.requestSeek()` → `SeekRequest` на сервер → сервер рассылает всем.
+- Disabled при `controlsDisabled` (нет соединения / нет sync / не controller).
+- Акцентный жёлтый цвет (`#f0b429`).
+
+#### «Синхронизировать меня на комнату»
+
+- Видна **всем участникам** (включая participant).
+- При нажатии: через **200 мс** (setTimeout) вычисляется актуальная позиция `sync.currentPositionMs()` и вызывается `adapter.seek(positionMs / 1000)`. Позиция вычисляется внутри таймера — не в момент клика, чтобы не устаревала.
+- Если `sync.getState().isPlaying === true` — ещё через **200 мс** вызывается `adapter.play()`.
+- Никаких запросов на сервер — только локальное применение.
+- Disabled при отсутствии соединения или sync. Проверка `adapter.isReady()` — в момент клика.
+- Нейтральный серый стиль.
+
+#### Архитектурные изменения
+
+- `adapterRef = useRef<IPlayerAdapter | null>(null)` добавлен в `RoomScreen`, обновляется в `handleAdapterChange`, передаётся в `PlayerControls` как `{ readonly current: IPlayerAdapter | null }`.
+- `PlayerControlsProps` расширен: `myRole`, `isConnected`, `adapterRef`.
+- CSS: `.sync-btns-row` (flex, gap 8px), `.sync-all-btn` (flex:1), `.sync-room-btn` (новый нейтральный стиль).
+
+### Коммит
+
+`9858521` — 2 файла, 80 добавлений / 11 удалений.
