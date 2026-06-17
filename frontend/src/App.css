@@ -497,10 +497,15 @@ ul     { list-style: none; }
 .rate-option.active { color: #f0b429; }
 .rate-option:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Кнопка «Синхронизация для всех» */
+/* Ряд кнопок синхронизации */
+
+.sync-btns-row {
+  display: flex;
+  gap: 8px;
+}
 
 .sync-all-btn {
-  width: 100%;
+  flex: 1;
   padding: 9px;
   background: #f0b429;
   color: #1a1a1a;
@@ -513,6 +518,22 @@ ul     { list-style: none; }
 }
 .sync-all-btn:hover:not(:disabled) { background: #e0a820; }
 .sync-all-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.sync-room-btn {
+  flex: 1;
+  padding: 9px;
+  background: #2e2e2e;
+  color: #9a9a9a;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #3a3a3a;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.sync-room-btn:hover:not(:disabled) { background: #3a3a3a; color: #e0e0e0; border-color: #4a4a4a; }
+.sync-room-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Строка seek + sync-индикатор */
 

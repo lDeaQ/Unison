@@ -319,13 +319,17 @@ interface PlayerControlsProps {
   videoUrl: string
   durationMs: number
   clockSync: ClockSyncState
+  myRole: Role | null
+  isConnected: boolean
+  adapterRef: { readonly current: IPlayerAdapter | null }
 }
 
-function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync }: PlayerControlsProps) {
+function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync, myRole, isConnected, adapterRef }: PlayerControlsProps) {
   const { state, play, pause, seek, setRate } = usePlayback(sync)
   const [seekInput, setSeekInput] = useState('')
   const [rateOpen, setRateOpen] = useState(false)
   const platform = videoUrl ? PlayerFactory.detect(videoUrl) : null
+  const isController = myRole === 'creator' || myRole === 'admin'
 
   const seekMs = parseMMSS(seekInput)
 
@@ -333,6 +337,34 @@ function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync }: Pla
     if (seekMs === null) return
     seek(seekMs)
     setSeekInput('')
+  }
+
+  const handleSyncAll = async () => {
+    const adapter = adapterRef.current
+    let positionMs: number
+    if (adapter && adapter.isReady()) {
+      try {
+        const sec = await adapter.getCurrentTime()
+        positionMs = sec > 0 ? sec * 1000 : (sync?.currentPositionMs() ?? state.positionMs)
+      } catch {
+        positionMs = sync?.currentPositionMs() ?? state.positionMs
+      }
+    } else {
+      positionMs = sync?.currentPositionMs() ?? state.positionMs
+    }
+    seek(positionMs)
+  }
+
+  const handleSyncToRoom = () => {
+    const adapter = adapterRef.current
+    if (!sync || !adapter || !adapter.isReady()) return
+    setTimeout(() => {
+      const positionMs = sync.currentPositionMs()
+      adapter.seek(positionMs / 1000)
+      if (sync.getState().isPlaying) {
+        setTimeout(() => adapter.play(), 200)
+      }
+    }, 200)
   }
 
   return (
@@ -385,14 +417,25 @@ function PlayerControls({ sync, disabled, videoUrl, durationMs, clockSync }: Pla
         </div>
       </div>
 
-      {/* Кнопка синхронизации для всех */}
-      <button
-        className="sync-all-btn"
-        onClick={() => seek(state.positionMs)}
-        disabled={disabled}
-      >
-        Синхронизация для всех
-      </button>
+      {/* Кнопки синхронизации */}
+      <div className="sync-btns-row">
+        {isController && (
+          <button
+            className="sync-all-btn"
+            onClick={handleSyncAll}
+            disabled={disabled}
+          >
+            Синхронизировать всех на меня
+          </button>
+        )}
+        <button
+          className="sync-room-btn"
+          onClick={handleSyncToRoom}
+          disabled={!isConnected || !sync}
+        >
+          Синхронизировать меня на комнату
+        </button>
+      </div>
 
       {/* Seek по MM:SS + sync-индикатор */}
       <div className="seek-sync-row">
@@ -626,9 +669,11 @@ function RoomScreen({
   const [leftOpen, setLeftOpen] = useState(true)
   const [chatOpen, setChatOpen] = useState(true)
   const [durationMs, setDurationMs] = useState(0)
+  const adapterRef = useRef<IPlayerAdapter | null>(null)
 
   const handleAdapterChange = useCallback(
     (adapter: IPlayerAdapter | null) => {
+      adapterRef.current = adapter
       playbackSync?.setAdapter(adapter)
       setDurationMs(0)
       if (!adapter) return
@@ -683,6 +728,9 @@ function RoomScreen({
             videoUrl={videoUrl}
             durationMs={durationMs}
             clockSync={sync}
+            myRole={myRole}
+            isConnected={isConnected}
+            adapterRef={adapterRef}
           />
           <ChatPanel
             messages={messages}
