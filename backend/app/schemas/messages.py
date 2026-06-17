@@ -336,3 +336,30 @@ class RoomClosedPayload(BaseModel):
 class RoomClosedMessage(BaseModel):
     type: Literal["RoomClosed"] = "RoomClosed"
     payload: RoomClosedPayload
+
+
+# ---------------------------------------------------------------------------
+# Измерение рассинхрона
+# ---------------------------------------------------------------------------
+
+class MeasureSyncPayload(BaseModel):
+    # Серверное Unix ms, в которое клиент должен зафиксировать позицию плеера.
+    # Обычно server_now + 500 — запас под RTT + обработку.
+    measure_at_ms: float
+
+
+class MeasureSyncMessage(BaseModel):
+    type: Literal["MeasureSync"] = "MeasureSync"
+    payload: MeasureSyncPayload
+
+
+class SyncMeasurementPayload(BaseModel):
+    # Позиция плеера в мс, зафиксированная через adapter.getCurrentTime()
+    position_ms: int = Field(ge=0)
+    # Эхо measure_at_ms из MeasureSync — сервер группирует ответы по этому полю
+    measure_at_ms: float
+
+
+class SyncMeasurementMessage(BaseModel):
+    type: Literal["SyncMeasurement"]
+    payload: SyncMeasurementPayload

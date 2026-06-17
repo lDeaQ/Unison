@@ -184,6 +184,40 @@ export class PlaybackSync {
     })
   }
 
+  // --- Измерение рассинхрона ---
+
+  onMeasureSync(measureAtMs: number): void {
+    if (!this.getOffsetReady()) return  // NTP ещё не готов — offset ненадёжен
+
+    const offset = this.getOffset()
+    const localMeasureAt = measureAtMs - offset
+    const delayMs = localMeasureAt - performance.now()
+
+    const doMeasure = () => {
+      const adapter = this.adapter
+      if (!adapter || !adapter.isReady()) return
+
+      adapter.getCurrentTime().then((sec) => {
+        const positionMs = Math.round(sec * 1000)
+        if (positionMs <= 0) return  // плеер ещё не воспроизводит — не засоряем статистику
+        this.send({
+          type: 'SyncMeasurement',
+          payload: { position_ms: positionMs, measure_at_ms: measureAtMs },
+        })
+      }).catch(() => {
+        // адаптер недоступен — молча пропускаем
+      })
+    }
+
+    if (delayMs > 0 && delayMs < 5000) {
+      setTimeout(doMeasure, delayMs)
+    } else if (delayMs >= -500) {
+      // незначительное опоздание — позиция ещё актуальна
+      doMeasure()
+    }
+    // старше 500мс — измерение устарело, игнорируем
+  }
+
   // --- VideoUrlChanged ---
 
   onVideoUrlChanged(): void {

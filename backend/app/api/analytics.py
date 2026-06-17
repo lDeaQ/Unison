@@ -14,8 +14,14 @@ from app.db import AsyncSessionLocal
 from app.models.chat import ChatMessage as ChatMessageModel
 from app.models.events import EventLog
 from app.models.session import Session, User
+from app.models.sync_measurement import SyncMeasurement
+from app.schemas.messages import MeasureSyncMessage, MeasureSyncPayload
+from app.sync.clock import server_now_ms
+from app.ws.manager import manager
 
 router = APIRouter(prefix="/api", tags=["analytics"])
+
+_MEASURE_LEAD_MS = 500.0  # запас между триггером и моментом фиксации позиции
 
 
 async def get_db() -> AsyncSession:
@@ -58,6 +64,26 @@ class ChatMessageRecord(BaseModel):
     text: str
     timestamp_ms: float
     deleted: bool
+
+
+class SyncMeasurementGroup(BaseModel):
+    measure_at_ms: float
+    count: int           # сколько клиентов ответило
+    min_pos_ms: int
+    max_pos_ms: int
+    desync_ms: int       # max - min
+    positions_ms: list[int]
+
+
+class SyncMeasurementsResponse(BaseModel):
+    session_id: str
+    groups: list[SyncMeasurementGroup]
+
+
+class TriggerMeasureResponse(BaseModel):
+    session_id: str
+    measure_at_ms: float
+    clients_notified: int
 
 
 # ---------- Эндпоинты ----------
@@ -209,3 +235,81 @@ async def get_chat(
         )
         for msg, user in rows
     ]
+
+
+@router.post(
+    "/sessions/{session_id}/measure",
+    response_model=TriggerMeasureResponse,
+    summary="Запустить измерение рассинхрона",
+)
+async def trigger_measure(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> TriggerMeasureResponse:
+    """Рассылает MeasureSync всем клиентам в сессии.
+
+    Клиенты фиксируют позицию плеера в момент measure_at_ms (server_now + 500мс)
+    и отвечают SyncMeasurement. Результаты накапливаются в sync_measurements.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Сессия '{session_id}' не найдена")
+
+    measure_at_ms = server_now_ms() + _MEASURE_LEAD_MS
+    msg = MeasureSyncMessage(payload=MeasureSyncPayload(measure_at_ms=measure_at_ms))
+    await manager.broadcast(session_id, msg.model_dump_json())
+
+    clients = manager.get_participants(session_id)
+    return TriggerMeasureResponse(
+        session_id=session_id,
+        measure_at_ms=measure_at_ms,
+        clients_notified=len(clients),
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/sync-measurements",
+    response_model=SyncMeasurementsResponse,
+    summary="Получить результаты измерений рассинхрона",
+)
+async def get_sync_measurements(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> SyncMeasurementsResponse:
+    """Возвращает все измерения, сгруппированные по measure_at_ms.
+
+    Для каждой группы вычисляет min, max, desync (max - min) и список позиций.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Сессия '{session_id}' не найдена")
+
+    result = await db.execute(
+        select(SyncMeasurement)
+        .where(SyncMeasurement.session_id == session_id)
+        .order_by(SyncMeasurement.measure_at_ms, SyncMeasurement.received_at_ms)
+    )
+    rows = result.scalars().all()
+
+    # Группируем по measure_at_ms (с округлением до 1 мс — защита от float-артефактов)
+    groups: dict[float, list[int]] = {}
+    for row in rows:
+        key = round(row.measure_at_ms, 1)
+        groups.setdefault(key, []).append(row.position_ms)
+
+    result_groups = []
+    for measure_at_ms, positions in sorted(groups.items()):
+        min_pos = min(positions)
+        max_pos = max(positions)
+        result_groups.append(
+            SyncMeasurementGroup(
+                measure_at_ms=measure_at_ms,
+                count=len(positions),
+                min_pos_ms=min_pos,
+                max_pos_ms=max_pos,
+                desync_ms=max_pos - min_pos,
+                positions_ms=sorted(positions),
+            )
+        )
+
+    return SyncMeasurementsResponse(session_id=session_id, groups=result_groups)

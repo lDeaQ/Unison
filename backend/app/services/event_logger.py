@@ -14,6 +14,7 @@ from app.db import AsyncSessionLocal
 from app.models.chat import ChatMessage as ChatMessageModel
 from app.models.events import EventLog
 from app.models.session import Session, User
+from app.models.sync_measurement import SyncMeasurement
 from app.services.session_state import SessionState
 from app.sync.clock import server_now_ms
 
@@ -164,6 +165,32 @@ async def save_chat_message(
             "Ошибка сохранения ChatMessage session=%s user=%s", session_id, user_id
         )
         return -1
+
+
+async def save_sync_measurement(
+    session_id: str,
+    user_id: str,
+    measure_at_ms: float,
+    position_ms: int,
+    received_at_ms: float,
+) -> None:
+    """Сохраняет результат измерения рассинхрона от одного клиента."""
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                SyncMeasurement(
+                    session_id=session_id,
+                    user_id=user_id,
+                    measure_at_ms=measure_at_ms,
+                    position_ms=position_ms,
+                    received_at_ms=received_at_ms,
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.exception(
+            "Ошибка сохранения SyncMeasurement session=%s user=%s", session_id, user_id
+        )
 
 
 async def log_time_sync(

@@ -213,6 +213,23 @@ export interface RoomClosedMessage {
   payload: Record<string, never>
 }
 
+// --- Измерение рассинхрона ---
+
+export interface MeasureSyncMessage {
+  type: 'MeasureSync'
+  payload: {
+    measure_at_ms: number  // серверное Unix ms, в которое нужно зафиксировать позицию
+  }
+}
+
+export interface SyncMeasurementMessage {
+  type: 'SyncMeasurement'
+  payload: {
+    position_ms: number   // позиция плеера в мс, зафиксированная в момент measure_at_ms
+    measure_at_ms: number // эхо из MeasureSync
+  }
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | ParticipantJoinedMessage
@@ -228,6 +245,7 @@ export type ServerMessage =
   | PersonalPlayMessage
   | RoleChangedMessage
   | RoomClosedMessage
+  | MeasureSyncMessage
 
 export type ClientMessage =
   | HelloMessage
@@ -242,3 +260,4 @@ export type ClientMessage =
   | GrantAdminMessage
   | RevokeAdminMessage
   | CloseRoomMessage
+  | SyncMeasurementMessage

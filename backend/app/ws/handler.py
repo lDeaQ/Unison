@@ -17,6 +17,7 @@ from app.schemas.messages import (
     ErrorPayload,
     GrantAdminMessage,
     HelloMessage,
+    MeasureSyncMessage,
     ParticipantJoinedMessage,
     ParticipantJoinedPayload,
     ParticipantLeftMessage,
@@ -41,6 +42,7 @@ from app.schemas.messages import (
     SetPlaybackRateBroadcastPayload,
     SetPlaybackRateRequestMessage,
     SetVideoUrlMessage,
+    SyncMeasurementMessage,
     TimeSyncRequestMessage,
     TimeSyncResponseMessage,
     TimeSyncResponsePayload,
@@ -55,6 +57,7 @@ from app.services.event_logger import (
     log_leave,
     log_time_sync,
     save_chat_message,
+    save_sync_measurement,
 )
 from app.services.session_state import (
     apply_pause,
@@ -509,6 +512,31 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
                     "ChatMessage: user='%s' message_id=%d len=%d",
                     nickname, message_id, len(req.payload.text),
                     extra=log_extra,
+                )
+                continue
+
+            if msg_type == "SyncMeasurement":
+                try:
+                    req = SyncMeasurementMessage.model_validate(parsed)
+                except ValidationError:
+                    await websocket.send_text(
+                        _make_error(
+                            "INVALID_MESSAGE",
+                            "SyncMeasurement: ожидается payload.position_ms (int≥0) и measure_at_ms (float)",
+                        )
+                    )
+                    continue
+
+                received_at = server_now_ms()
+                await save_sync_measurement(
+                    session_id, user_id,
+                    req.payload.measure_at_ms,
+                    req.payload.position_ms,
+                    received_at,
+                )
+                logger.debug(
+                    "SyncMeasurement: position_ms=%d measure_at_ms=%.1f",
+                    req.payload.position_ms, req.payload.measure_at_ms, extra=log_extra,
                 )
                 continue
 

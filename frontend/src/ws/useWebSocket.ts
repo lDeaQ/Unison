@@ -159,6 +159,11 @@ export function useWebSocket(sessionId: string, nickname: string): UseWebSocketR
       })
     })
 
+    client.on('message:MeasureSync', (payload) => {
+      const p = payload as { measure_at_ms: number }
+      playback.onMeasureSync(p.measure_at_ms)
+    })
+
     client.on('message:Error', (payload) => {
       const err = payload as { code: string; message: string }
       console.warn('[server Error]', err.code, err.message)

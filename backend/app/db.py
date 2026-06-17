@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.base import Base
 # Импорт моделей нужен, чтобы их метаданные попали в Base.metadata до create_all
-from app.models import Session, User, EventLog, ChatMessage  # noqa: F401
+from app.models import Session, User, EventLog, ChatMessage, SyncMeasurement  # noqa: F401
 
 DB_PATH = Path(__file__).parent.parent / "data" / "app.db"
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
